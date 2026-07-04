@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">HeritageBot</string>
+    <string name="facebook_app_id">1475387131009715</string>
+    <string name="facebook_client_token">09a8d55075c8a5d2983e8e7f1f9affda</string>
+    <string name="fb_login_protocol_scheme">fb1475387131009715</string>
+</resources>

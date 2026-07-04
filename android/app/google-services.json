@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "879489283255",
+    "project_id": "heritagebot-bdc39",
+    "storage_bucket": "heritagebot-bdc39.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:879489283255:android:a7fd65b0a61a839e7e0932",
+        "android_client_info": {
+          "package_name": "com.example.heritagebot"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "879489283255-duolubnrg09ntivv9k0vkidqn2n16id6.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.heritagebot",
+            "certificate_hash": "212cc83330c59ba6694cf6e5fb469bcd0b25f101"
+          }
+        },
+        {
+          "client_id": "879489283255-8kl7pe6bn4f2k798chie6bcij1atm7hd.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBRLCDJDb8mdSPZRGUcf5r2EFCtWxfzNq0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "879489283255-8kl7pe6bn4f2k798chie6bcij1atm7hd.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "879489283255-tank7ktbnnr8v4su6jpj5dhsd0u3k6vs.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.heritagebot"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
