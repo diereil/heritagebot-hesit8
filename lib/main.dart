@@ -29,9 +29,7 @@ const String geminiImageModel = 'gemini-3.1-flash-image';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   await GoogleSignIn.instance.initialize();
   await LanguageController.load();
@@ -217,8 +215,10 @@ class JournalEntry {
     } else if (millisRaw is num) {
       parsedMillis = millisRaw.toInt();
     } else {
-      parsedMillis = DateTime.tryParse(createdAtRaw?.toString() ?? '')
-              ?.millisecondsSinceEpoch ??
+      parsedMillis =
+          DateTime.tryParse(
+            createdAtRaw?.toString() ?? '',
+          )?.millisecondsSinceEpoch ??
           0;
     }
 
@@ -350,10 +350,9 @@ class JournalService {
           createdAtMillis: nowMillis,
         );
 
-        await _journalCollection().doc(migratedEntry.id).set(
-              migratedEntry.toMap(),
-              SetOptions(merge: true),
-            );
+        await _journalCollection()
+            .doc(migratedEntry.id)
+            .set(migratedEntry.toMap(), SetOptions(merge: true));
       } catch (_) {
         // Skip broken local entries so the online database can still work.
       }
@@ -366,49 +365,183 @@ class JournalService {
     await _journalCollection().doc(entry.id).set(entry.toMap());
   }
 
-  Future<void> updateEntry(JournalEntry entry) async {
-    await _journalCollection().doc(entry.id).set(
-          entry.toMap(),
-          SetOptions(merge: true),
-        );
-  }
-
   Future<void> deleteEntry(String id) async {
     await _journalCollection().doc(id).delete();
   }
 }
 
 class PlaceImageService {
-  static final Map<String, String?> _cache = {};
+  static final Map<String, List<String>> _cache = {};
 
-  Future<String?> getPlaceImageUrl(HeritagePlace place) async {
+  // STRICT MODE:
+  // Only these manually verified Wikimedia Commons file titles are used.
+  // This prevents wrong nearby photos, parade photos, logos, seals, and random search results.
+  // If a place has fewer than 5 verified files, the carousel shows fewer correct photos instead
+  // of forcing 5 inaccurate images.
+  static const Map<String, List<String>> _verifiedCommonsFiles = {
+    'uclm': [
+      'File:Chooks Express! at the University Of Cebu Lapu-Lapu and Mandaue (2024-03-23).jpg',
+      'File:Mister Donut at the University Of Cebu Lapu-Lapu and Mandaue (2024-03-23).jpg',
+      'File:University-of-cebu-LM.jpg',
+    ],
+    'casa_gorordo': [
+      'File:Night shot of Casa Gorordo.jpg',
+      'File:Casa Gorordo Museum 10.jpg',
+      'File:Casa Gorordo Museum (E. Aboitiz, Cebu City; 09-05-2022).jpg',
+      "File:Suitor's Corner – Outside Casa Gorordo.jpg",
+      'File:Casa Gorordo Cebu Philippines.jpg',
+    ],
+    'magellans_cross': [
+      "File:Magellan's Cross, Cebu City.jpg",
+      "File:Magellan's Cross Pavilion.jpg",
+      "File:Magellan's Cross, Cebu.jpg",
+    ],
+    'fort_san_pedro': [
+      'File:Fort San Pedro, Cebu City.jpg',
+      'File:Fuerte de San Pedro Cebu.jpg',
+      'File:Fort San Pedro, Cebu.jpg',
+    ],
+    'basilica_santo_nino': [
+      'File:Basilica Minore del Santo Niño de Cebu.jpg',
+      'File:Basilica del Santo Niño, Cebu City.jpg',
+      'File:Basilica Minore del Santo Niño Cebu.jpg',
+    ],
+  };
+
+  final Set<String> _addedFileKeys = <String>{};
+
+  Future<List<String>> getPlaceImageUrls(
+    HeritagePlace place, {
+    int limit = 5,
+  }) async {
+    final cacheKey = '${place.id}-$limit-strict-v1';
+
+    if (_cache.containsKey(cacheKey)) {
+      return _cache[cacheKey]!;
+    }
+
+    final urls = <String>[];
+    _addedFileKeys.clear();
+
+    // Exact verified files only. Do NOT use geosearch/text search because it can return
+    // nearby buildings, logos, seals, parades, or unrelated images.
+    await _addExactWikimediaFiles(place, urls, limit);
+
+    // Only when no verified file exists for a place, try the Wikipedia lead image.
+    // This is safer than loose search but still not forced for places with verified files.
+    if (urls.isEmpty && place.id != 'uclm') {
+      await _addWikipediaSummaryImage(place, urls, 1);
+    }
+
+    final result = urls.take(limit).toList();
+    _cache[cacheKey] = result;
+    return result;
+  }
+
+  Future<void> _addExactWikimediaFiles(
+    HeritagePlace place,
+    List<String> urls,
+    int limit,
+  ) async {
+    final titles = _verifiedCommonsFiles[place.id];
+    if (titles == null || titles.isEmpty || urls.length >= limit) return;
+
+    try {
+      final uri = Uri.https('commons.wikimedia.org', '/w/api.php', {
+        'action': 'query',
+        'titles': titles.join('|'),
+        'prop': 'imageinfo',
+        'iiprop': 'url|mime',
+        'iiurlwidth': '1200',
+        'format': 'json',
+        'origin': '*',
+      });
+
+      final response = await http
+          .get(
+            uri,
+            headers: const {
+              'User-Agent': 'HeritageBot/1.0 (educational capstone app)',
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode < 200 || response.statusCode >= 300) return;
+
+      final decoded = jsonDecode(response.body);
+      _addImagesFromQueryPages(decoded, urls, limit, strictTitleFilter: false);
+    } catch (_) {
+      // Keep the app working even when Wikimedia is offline or slow.
+    }
+  }
+
+  Future<void> _addGeotaggedCommonsImages(
+    HeritagePlace place,
+    List<String> urls,
+    int limit,
+  ) async {
+    if (urls.length >= limit) return;
+
+    try {
+      final uri = Uri.https('commons.wikimedia.org', '/w/api.php', {
+        'action': 'query',
+        'generator': 'geosearch',
+        'ggscoord': '${place.lat}|${place.lng}',
+        'ggsradius': '700',
+        'ggsnamespace': '6',
+        'ggslimit': '20',
+        'prop': 'imageinfo',
+        'iiprop': 'url|mime',
+        'iiurlwidth': '1200',
+        'format': 'json',
+        'origin': '*',
+      });
+
+      final response = await http
+          .get(
+            uri,
+            headers: const {
+              'User-Agent': 'HeritageBot/1.0 (educational capstone app)',
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode < 200 || response.statusCode >= 300) return;
+
+      final decoded = jsonDecode(response.body);
+      _addImagesFromQueryPages(decoded, urls, limit, strictTitleFilter: true);
+    } catch (_) {
+      // Ignore failed online image requests so the app still works offline.
+    }
+  }
+
+  Future<void> _addWikipediaSummaryImage(
+    HeritagePlace place,
+    List<String> urls,
+    int limit,
+  ) async {
     final title = place.wikipediaTitle.trim();
 
-    if (title.isEmpty) {
-      return null;
-    }
-
-    if (_cache.containsKey(title)) {
-      return _cache[title];
-    }
+    if (title.isEmpty || urls.length >= limit) return;
 
     try {
       final uri = Uri.parse(
         'https://en.wikipedia.org/api/rest_v1/page/summary/${Uri.encodeComponent(title)}',
       );
 
-      final response = await http.get(
-        uri,
-        headers: const {
-          'User-Agent': 'HeritageBot/1.0 (educational capstone app)',
-          'Accept': 'application/json',
-        },
-      ).timeout(const Duration(seconds: 12));
+      final response = await http
+          .get(
+            uri,
+            headers: const {
+              'User-Agent': 'HeritageBot/1.0 (educational capstone app)',
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(const Duration(seconds: 12));
 
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        _cache[title] = null;
-        return null;
-      }
+      if (response.statusCode < 200 || response.statusCode >= 300) return;
 
       final decoded = jsonDecode(response.body);
 
@@ -416,23 +549,167 @@ class PlaceImageService {
         final originalImage = decoded['originalimage'];
         final thumbnail = decoded['thumbnail'];
 
-        final originalSource = originalImage is Map ? originalImage['source'] : null;
+        final originalSource = originalImage is Map
+            ? originalImage['source']
+            : null;
         final thumbnailSource = thumbnail is Map ? thumbnail['source'] : null;
 
-        final source = originalSource ?? thumbnailSource;
-
-        if (source is String && source.trim().isNotEmpty) {
-          _cache[title] = source.trim();
-          return source.trim();
-        }
+        _safeAddImageUrl(
+          urls,
+          thumbnailSource ?? originalSource,
+          limit,
+          sourceKey: 'summary-${place.id}',
+          title: place.wikipediaTitle,
+          strictTitleFilter: true,
+        );
       }
-
-      _cache[title] = null;
-      return null;
     } catch (_) {
-      _cache[title] = null;
-      return null;
+      // Ignore failed online image requests so the app still works offline.
     }
+  }
+
+  Future<void> _addWikimediaCommonsImages({
+    required String searchTerm,
+    required List<String> urls,
+    required int limit,
+  }) async {
+    if (searchTerm.trim().isEmpty || urls.length >= limit) return;
+
+    try {
+      final uri = Uri.https('commons.wikimedia.org', '/w/api.php', {
+        'action': 'query',
+        'generator': 'search',
+        'gsrsearch': '$searchTerm -logo -seal -emblem -icon',
+        'gsrnamespace': '6',
+        'gsrlimit': '20',
+        'prop': 'imageinfo',
+        'iiprop': 'url|mime',
+        'iiurlwidth': '1200',
+        'format': 'json',
+        'origin': '*',
+      });
+
+      final response = await http
+          .get(
+            uri,
+            headers: const {
+              'User-Agent': 'HeritageBot/1.0 (educational capstone app)',
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode < 200 || response.statusCode >= 300) return;
+
+      final decoded = jsonDecode(response.body);
+      _addImagesFromQueryPages(decoded, urls, limit, strictTitleFilter: true);
+    } catch (_) {
+      // Ignore failed online image requests so the app still works offline.
+    }
+  }
+
+  void _addImagesFromQueryPages(
+    dynamic decoded,
+    List<String> urls,
+    int limit, {
+    required bool strictTitleFilter,
+  }) {
+    if (decoded is! Map) return;
+    final query = decoded['query'];
+    if (query is! Map) return;
+    final pages = query['pages'];
+    if (pages is! Map) return;
+
+    for (final page in pages.values) {
+      if (urls.length >= limit) break;
+      if (page is! Map) continue;
+
+      final title = page['title']?.toString() ?? '';
+      final imageInfo = page['imageinfo'];
+      if (imageInfo is! List || imageInfo.isEmpty) continue;
+
+      final firstInfo = imageInfo.first;
+      if (firstInfo is! Map) continue;
+
+      final mime = firstInfo['mime']?.toString().toLowerCase() ?? '';
+      if (!mime.startsWith('image/')) continue;
+      if (mime.contains('svg')) continue;
+
+      // Use only one URL per file to avoid duplicate carousel items.
+      final thumbUrl = firstInfo['thumburl'];
+      final originalUrl = firstInfo['url'];
+
+      _safeAddImageUrl(
+        urls,
+        thumbUrl ?? originalUrl,
+        limit,
+        sourceKey: title,
+        title: title,
+        strictTitleFilter: strictTitleFilter,
+      );
+    }
+  }
+
+  void _safeAddImageUrl(
+    List<String> urls,
+    dynamic value,
+    int limit, {
+    required String sourceKey,
+    required String title,
+    required bool strictTitleFilter,
+  }) {
+    if (urls.length >= limit) return;
+    if (value is! String) return;
+
+    final url = value.trim();
+    if (url.isEmpty) return;
+    if (!_looksLikeImageUrl(url)) return;
+    if (_isBlockedLogoOrSeal(title) || _isBlockedLogoOrSeal(url)) return;
+    if (strictTitleFilter && _isLikelyNonPhoto(title, url)) return;
+
+    final key = _normalizeFileKey(sourceKey.isEmpty ? url : sourceKey);
+    if (_addedFileKeys.contains(key)) return;
+    if (urls.contains(url)) return;
+
+    _addedFileKeys.add(key);
+    urls.add(url);
+  }
+
+  String _normalizeFileKey(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll('https://commons.wikimedia.org/wiki/', '')
+        .replaceAll('https://upload.wikimedia.org/wikipedia/commons/thumb/', '')
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '');
+  }
+
+  bool _isBlockedLogoOrSeal(String value) {
+    final lower = value.toLowerCase();
+    return lower.contains('logo') ||
+        lower.contains('seal') ||
+        lower.contains('emblem') ||
+        lower.contains('crest') ||
+        lower.contains('badge') ||
+        lower.contains('icon') ||
+        lower.contains('.svg');
+  }
+
+  bool _isLikelyNonPhoto(String title, String url) {
+    final combined = '$title $url'.toLowerCase();
+    return combined.contains('map') ||
+        combined.contains('diagram') ||
+        combined.contains('marker') ||
+        combined.contains('qr') ||
+        combined.contains('symbol');
+  }
+
+  bool _looksLikeImageUrl(String url) {
+    final lower = url.toLowerCase();
+    return lower.startsWith('https://') &&
+        (lower.contains('.jpg') ||
+            lower.contains('.jpeg') ||
+            lower.contains('.png') ||
+            lower.contains('.webp'));
   }
 }
 
@@ -465,10 +742,13 @@ class GeminiStoryService {
     final speedText = speedMetersPerSecond < 1.2
         ? 'walking or staying nearby'
         : speedMetersPerSecond < 7
-            ? 'slowly moving'
-            : 'driving or moving fast';
+        ? 'slowly moving'
+        : 'driving or moving fast';
 
-    final prompt = '''
+    final targetLanguage = preferredLanguage.storyInstruction;
+
+    final prompt =
+        '''
 You are HeritageBot, an AI-based historical narrative generator for Cebu heritage tourism.
 
 Generate a context-aware story for the user.
@@ -484,16 +764,20 @@ ${place.historicalFacts}
 Saved personal memories from this user:
 $memoryText
 
-Target language:
-Write the final answer in ${preferredLanguage.storyInstruction}.
+TARGET LANGUAGE: $targetLanguage
 
-Requirements:
+STRICT LANGUAGE RULES:
+- Write the entire final answer only in $targetLanguage.
+- Do not write English sentences unless the selected target language is English.
+- Translate the title, location sentence, historical facts, and memory reminder into $targetLanguage.
+- Do not include an English translation beside the target language.
+
+Content requirements:
 - Use simple, friendly words for tourists and students.
 - Make it immersive and meaningful.
 - Do not invent fake dates or unsupported historical claims.
 - If the user has saved memories, connect them gently to the place.
 - Keep it around 2 to 4 short paragraphs.
-- Title it "Context-Aware Heritage Story" if the language is English, or translate the title naturally if another language is selected.
 ''';
 
     try {
@@ -505,14 +789,11 @@ Requirements:
               'contents': [
                 {
                   'parts': [
-                    {'text': prompt}
-                  ]
-                }
+                    {'text': prompt},
+                  ],
+                },
               ],
-              'generationConfig': {
-                'temperature': 0.7,
-                'maxOutputTokens': 450,
-              }
+              'generationConfig': {'temperature': 0.45, 'maxOutputTokens': 650},
             }),
           )
           .timeout(const Duration(seconds: 25));
@@ -559,43 +840,203 @@ Requirements:
     List<JournalEntry> memories,
     AppLanguage preferredLanguage,
   ) {
-    final movement = speedMetersPerSecond < 1.2
-        ? 'You seem to be walking or staying near this area.'
-        : speedMetersPerSecond < 7
+    final distanceKm = (distanceMeters / 1000).toStringAsFixed(2);
+    final fact = _localizedFact(place, preferredLanguage.code);
+    final hasMemory = memories.isNotEmpty;
+
+    switch (preferredLanguage.code) {
+      case 'fil':
+        final movement = speedMetersPerSecond < 1.2
+            ? 'Mukhang naglalakad ka o nananatili malapit sa lugar na ito.'
+            : speedMetersPerSecond < 7
+            ? 'Mukhang dahan-dahan kang gumagalaw malapit sa lugar na ito.'
+            : 'Mukhang dumadaan ka sa lugar na ito habang mabilis na gumagalaw.';
+        final memoryLine = hasMemory
+            ? 'Mayroon kang naka-save na alaala tungkol sa lugar na ito, kaya matutulungan ka ng HeritageBot na balikan ang iyong dating karanasan habang muli mo itong binibisita.'
+            : 'Wala ka pang naka-save na alaala para sa lugar na ito, ngunit maaari kang magdagdag ng personal na sulat, larawan, o video upang maging mas makabuluhan ang iyong susunod na pagbisita.';
+        return '''Kuwento ng Pamana Batay sa Iyong Lokasyon
+
+Malapit ka ngayon sa ${place.name}, na matatagpuan sa ${place.location}. Ito ay humigit-kumulang $distanceKm km mula sa iyong kasalukuyang lokasyon. $movement
+
+$fact
+
+$memoryLine''';
+
+      case 'ko':
+        final movement = speedMetersPerSecond < 1.2
+            ? '현재 이 지역 근처를 걷고 있거나 머무르고 있는 것으로 보입니다.'
+            : speedMetersPerSecond < 7
+            ? '현재 이 장소 근처에서 천천히 이동하고 있는 것으로 보입니다.'
+            : '현재 빠르게 이동하면서 이 지역을 지나가고 있는 것으로 보입니다.';
+        final memoryLine = hasMemory
+            ? '이 장소와 연결된 저장된 추억이 있으므로, HeritageBot은 다시 방문하는 동안 이전 경험을 떠올릴 수 있도록 도와줍니다.'
+            : '아직 이 장소에 저장된 추억이 없습니다. 다음 방문을 더 의미 있게 만들기 위해 개인적인 글, 사진 또는 영상을 추가할 수 있습니다.';
+        return '''위치 기반 문화유산 이야기
+
+현재 ${place.location}에 있는 ${place.name} 근처에 있습니다. 현재 위치에서 약 $distanceKm km 떨어져 있습니다. $movement
+
+$fact
+
+$memoryLine''';
+
+      case 'ja':
+        final movement = speedMetersPerSecond < 1.2
+            ? 'この地域の近くを歩いている、または滞在しているようです。'
+            : speedMetersPerSecond < 7
+            ? 'この場所の近くをゆっくり移動しているようです。'
+            : '速い速度でこの地域を通過しているようです。';
+        final memoryLine = hasMemory
+            ? 'この場所に関連する保存済みの思い出があります。HeritageBotは、再び訪れるときに以前の体験を思い出す手助けをします。'
+            : 'この場所にはまだ保存された思い出がありません。次の訪問をより意味のあるものにするために、手紙、写真、または動画を追加できます。';
+        return '''位置情報に基づく文化遺産ストーリー
+
+あなたは現在、${place.location}にある${place.name}の近くにいます。現在地から約$distanceKm km離れています。$movement
+
+$fact
+
+$memoryLine''';
+
+      case 'zh':
+        final movement = speedMetersPerSecond < 1.2
+            ? '你似乎正在这个区域附近步行或停留。'
+            : speedMetersPerSecond < 7
+            ? '你似乎正在这个地点附近缓慢移动。'
+            : '你似乎正在快速经过这个区域。';
+        final memoryLine = hasMemory
+            ? '你已经保存了与这个地点相关的回忆，因此 HeritageBot 可以在你再次探索这里时帮助你回顾之前的经历。'
+            : '你还没有为这个地点保存回忆，但你可以添加个人文字、照片或视频，让下一次参观更有意义。';
+        return '''基于位置的文化遗产故事
+
+你现在靠近位于${place.location}的${place.name}。它距离你当前的位置约 $distanceKm 公里。$movement
+
+$fact
+
+$memoryLine''';
+
+      case 'nl':
+        final movement = speedMetersPerSecond < 1.2
+            ? 'Je lijkt in de buurt van dit gebied te wandelen of te blijven.'
+            : speedMetersPerSecond < 7
+            ? 'Je lijkt langzaam in de buurt van deze plaats te bewegen.'
+            : 'Je lijkt dit gebied snel te passeren.';
+        final memoryLine = hasMemory
+            ? 'Je hebt herinneringen opgeslagen die verbonden zijn met deze plaats, zodat HeritageBot je kan helpen je eerdere bezoek opnieuw te beleven.'
+            : 'Je hebt nog geen herinneringen voor deze plaats opgeslagen, maar je kunt een persoonlijke tekst, foto of video toevoegen om je volgende bezoek betekenisvoller te maken.';
+        return '''Locatiebewust erfgoedverhaal
+
+Je bent in de buurt van ${place.name}, gelegen aan ${place.location}. Het is ongeveer $distanceKm km verwijderd van je huidige locatie. $movement
+
+$fact
+
+$memoryLine''';
+
+      case 'es':
+        final movement = speedMetersPerSecond < 1.2
+            ? 'Parece que estás caminando o permaneciendo cerca de esta zona.'
+            : speedMetersPerSecond < 7
+            ? 'Parece que te estás moviendo lentamente cerca de este lugar.'
+            : 'Parece que estás pasando rápidamente por esta zona.';
+        final memoryLine = hasMemory
+            ? 'Tienes recuerdos guardados relacionados con este lugar, por lo que HeritageBot puede ayudarte a recordar tu visita anterior mientras lo exploras de nuevo.'
+            : 'Aún no tienes recuerdos guardados para este lugar, pero puedes agregar una carta personal, una foto o un video para que tu próxima visita sea más significativa.';
+        return '''Historia patrimonial basada en tu ubicación
+
+Estás cerca de ${place.name}, ubicado en ${place.location}. Se encuentra aproximadamente a $distanceKm km de tu ubicación actual. $movement
+
+$fact
+
+$memoryLine''';
+
+      default:
+        final movement = speedMetersPerSecond < 1.2
+            ? 'You seem to be walking or staying near this area.'
+            : speedMetersPerSecond < 7
             ? 'You seem to be slowly moving near this place.'
             : 'You seem to be passing by this area while moving fast.';
+        final memoryLine = hasMemory
+            ? 'You have saved memories connected to this place, so HeritageBot can help you remember your previous visit while exploring it again.'
+            : 'You do not have saved memories for this place yet, but you can add a personal letter, picture, or video to make your next visit more meaningful.';
+        return '''Context-Aware Heritage Story
 
-    final memoryLine = memories.isEmpty
-        ? 'You do not have saved memories for this place yet, but you can add a personal letter, picture, or video to make your next visit more meaningful.'
-        : 'You have saved memories connected to this place, so HeritageBot can help you remember your previous visit while exploring it again.';
+You are near ${place.name}, located in ${place.location}. It is around $distanceKm km from your current position. $movement
 
-    if (preferredLanguage.code == 'ceb') {
-      return '''Sugilanon sa Kabilin nga Nahiuyon sa Imong Lokasyon
-
-Duol ka karon sa ${place.name}, nga nahimutang sa ${place.location}. Kini mga ${(distanceMeters / 1000).toStringAsFixed(2)} km gikan sa imong kasamtangang lokasyon. $movement
-
-${place.historicalFacts}
+$fact
 
 $memoryLine''';
     }
+  }
 
-    if (preferredLanguage.code == 'fil') {
-      return '''Kuwento ng Pamana Batay sa Iyong Lokasyon
+  String _localizedFact(HeritagePlace place, String code) {
+    final facts = <String, Map<String, String>>{
+      'uclm': {
+        'fil':
+            'Ang University of Cebu Lapu-Lapu and Mandaue, na kilala rin bilang UCLM, ay isang institusyong pang-edukasyon sa A.C. Cortes Avenue sa Mandaue City. Mahalaga ito para sa mga estudyante, alumni, pamilya, at bisita dahil iniuugnay nito ang edukasyon, personal na pag-unlad, pagkakaibigan, at mga alaala sa paaralan.',
+        'ko':
+            'University of Cebu Lapu-Lapu and Mandaue, 또는 UCLM은 만다우에 시의 A.C. Cortes Avenue에 위치한 교육 기관입니다. 이곳은 교육, 개인적 성장, 우정, 학교생활의 추억을 연결하기 때문에 학생, 동문, 가족, 방문객에게 의미 있는 장소입니다.',
+        'ja':
+            'University of Cebu Lapu-Lapu and Mandaue、通称UCLMは、マンダウエ市のA.C. Cortes Avenue沿いにある教育機関です。教育、個人の成長、友情、学校での思い出を結びつける場所として、学生、卒業生、家族、訪問者にとって意味のある場所です。',
+        'zh':
+            '宿务大学拉普拉普和曼达维校区，也称为 UCLM，是位于曼达维市 A.C. Cortes Avenue 的一所教育机构。它对学生、校友、家庭和访客都具有意义，因为这里承载着教育、个人成长、友谊和校园回忆。',
+        'nl':
+            'De University of Cebu Lapu-Lapu and Mandaue, ook bekend als UCLM, is een onderwijsinstelling aan A.C. Cortes Avenue in Mandaue City. De plaats is betekenisvol voor studenten, alumni, families en bezoekers omdat zij onderwijs, persoonlijke groei, vriendschappen en schoolherinneringen met elkaar verbindt.',
+        'es':
+            'La University of Cebu Lapu-Lapu and Mandaue, también conocida como UCLM, es una institución educativa ubicada en A.C. Cortes Avenue, en la ciudad de Mandaue. Es un lugar significativo para estudiantes, exalumnos, familias y visitantes porque conecta la educación, el crecimiento personal, las amistades y los recuerdos escolares.',
+      },
+      'magellans_cross': {
+        'fil':
+            'Ang Magellan’s Cross ay isa sa pinakakilalang palatandaan sa Cebu. Ito ay kaugnay ng pagdating ng Kristiyanismo sa Pilipinas at mahalagang simbolo ng kasaysayan, pananampalataya, at turismo ng Cebu.',
+        'ko':
+            '마젤란의 십자가는 세부에서 가장 잘 알려진 랜드마크 중 하나입니다. 필리핀에 기독교가 전래된 역사와 관련이 있으며, 세부의 역사, 신앙, 관광을 상징하는 중요한 장소입니다.',
+        'ja':
+            'マゼラン・クロスは、セブで最もよく知られたランドマークの一つです。フィリピンへのキリスト教伝来と結びついており、セブの歴史、信仰、観光を象徴する重要な場所です。',
+        'zh': '麦哲伦十字架是宿务最知名的地标之一。它与基督教传入菲律宾的历史有关，是宿务历史、信仰和旅游的重要象征。',
+        'nl':
+            'Magellan’s Cross is een van de bekendste bezienswaardigheden van Cebu. Het wordt verbonden met de komst van het christendom in de Filipijnen en is een belangrijk symbool van Cebuano geschiedenis, geloof en toerisme.',
+        'es':
+            'La Cruz de Magallanes es uno de los monumentos más reconocidos de Cebú. Está asociada con la llegada del cristianismo a Filipinas y es un símbolo importante de la historia, la fe y el turismo cebuano.',
+      },
+      'fort_san_pedro': {
+        'fil':
+            'Ang Fort San Pedro ay isang estrukturang pandepensa mula sa panahon ng kolonyalismong Espanyol sa Cebu City. Ginamit ito bilang kuta noong panahon ng kolonyalismo at ngayon ay pinangangalagaan bilang pook-pamana at destinasyong panturismo.',
+        'ko':
+            '산 페드로 요새는 세부 시에 있는 스페인 식민지 시대의 군사 방어 시설입니다. 과거에는 방어 요새로 사용되었으며, 현재는 문화유산 및 관광지로 보존되고 있습니다.',
+        'ja':
+            'サン・ペドロ要塞は、セブ市にあるスペイン植民地時代の軍事防衛施設です。植民地時代には要塞として使われ、現在は文化遺産および観光地として保存されています。',
+        'zh': '圣佩德罗堡是宿务市的一座西班牙殖民时期军事防御建筑。它曾作为防御堡垒使用，如今被保存为文化遗产和旅游景点。',
+        'nl':
+            'Fort San Pedro is een Spaans-koloniale militaire verdedigingsstructuur in Cebu City. Het diende vroeger als fortificatie en wordt tegenwoordig bewaard als erfgoed- en toeristische locatie.',
+        'es':
+            'El Fuerte de San Pedro es una estructura militar defensiva de la época colonial española en la ciudad de Cebú. Sirvió como fortificación durante el período colonial y actualmente se conserva como sitio patrimonial y turístico.',
+      },
+      'basilica_santo_nino': {
+        'fil':
+            'Ang Basilica Minore del Santo Niño ay isa sa pinakamatandang simbahang Katoliko Romano sa Pilipinas. Malapit itong kaugnay ng debosyon sa Santo Niño, pananampalatayang Cebuano, at pagdiriwang ng Sinulog.',
+        'ko':
+            '산토 니뇨 성당은 필리핀에서 가장 오래된 로마 가톨릭 성당 중 하나입니다. 산토 니뇨 신앙, 세부아노의 경건함, 그리고 시눌로그 축제와 깊이 연결되어 있습니다.',
+        'ja':
+            'サント・ニーニョ聖堂は、フィリピンで最も古いローマ・カトリック教会の一つです。サント・ニーニョへの信仰、セブアノの信心、シヌログ祭りと深く結びついています。',
+        'zh': '圣婴圣殿是菲律宾最古老的罗马天主教堂之一。它与宿务人对圣婴的虔诚信仰以及 Sinulog 节庆紧密相连。',
+        'nl':
+            'De Basilica Minore del Santo Niño is een van de oudste rooms-katholieke kerken in de Filipijnen. De kerk is nauw verbonden met de verering van de Santo Niño en het Sinulog-festival.',
+        'es':
+            'La Basílica Menor del Santo Niño es una de las iglesias católicas romanas más antiguas de Filipinas. Está estrechamente relacionada con la devoción al Santo Niño y la celebración del Sinulog.',
+      },
+      'casa_gorordo': {
+        'fil':
+            'Ipinapakita ng Casa Gorordo Museum ang pamumuhay ng isang pamilyang Cebuano noong panahon ng kolonyalismong Espanyol. Pinangangalagaan nito ang mga antigong kasangkapan, relihiyosong bagay, at materyales na nagpapakita ng dating pamumuhay sa Cebu.',
+        'ko':
+            '카사 고로르도 박물관은 스페인 식민지 시대 세부아노 가정의 생활 방식을 보여줍니다. 오래된 가구, 종교적 물건, 생활용품을 보존하여 옛 세부의 문화를 전합니다.',
+        'ja':
+            'カーサ・ゴロルド博物館は、スペイン植民地時代のセブアノ家族の暮らしを紹介しています。古い家具、宗教的な品々、生活用品を保存し、昔のセブの文化を伝えています。',
+        'zh': '卡萨戈罗多博物馆展示了西班牙殖民时期宿务家庭的生活方式。馆内保存着古董家具、宗教物品和生活用品，展现了旧时宿务人的日常生活。',
+        'nl':
+            'Het Casa Gorordo Museum toont de levensstijl van een Cebuano familie tijdens de Spaanse koloniale periode. Het bewaart antieke meubels, religieuze voorwerpen en huishoudelijke materialen die het vroegere leven in Cebu laten zien.',
+        'es':
+            'El Museo Casa Gorordo muestra el estilo de vida de una familia cebuana durante el período colonial español. Conserva muebles antiguos, objetos religiosos y materiales domésticos que muestran cómo vivían las familias antiguas de Cebú.',
+      },
+    };
 
-Malapit ka ngayon sa ${place.name}, na matatagpuan sa ${place.location}. Ito ay humigit-kumulang ${(distanceMeters / 1000).toStringAsFixed(2)} km mula sa iyong kasalukuyang lokasyon. $movement
-
-${place.historicalFacts}
-
-$memoryLine''';
-    }
-
-    return '''Context-Aware Heritage Story
-
-You are near ${place.name}, located in ${place.location}. It is around ${(distanceMeters / 1000).toStringAsFixed(2)} km from your current position. $movement
-
-${place.historicalFacts}
-
-$memoryLine''';
+    return facts[place.id]?[code] ?? place.historicalFacts;
   }
 }
 
@@ -657,7 +1098,8 @@ class AuthService {
     if (!isPasswordUser(user)) {
       throw FirebaseAuthException(
         code: 'not-password-user',
-        message: 'Password change is only available for email/password accounts. Google and Facebook accounts must change their password from their provider.',
+        message:
+            'Password change is only available for email/password accounts. Google and Facebook accounts must change their password from their provider.',
       );
     }
 
@@ -720,8 +1162,8 @@ class AuthService {
     try {
       await GoogleSignIn.instance.signOut();
 
-      final GoogleSignInAccount googleUser =
-          await GoogleSignIn.instance.authenticate();
+      final GoogleSignInAccount googleUser = await GoogleSignIn.instance
+          .authenticate();
 
       final GoogleSignInAuthentication googleAuth = googleUser.authentication;
 
@@ -802,9 +1244,7 @@ class LocationService {
       distanceFilter: 3,
     );
 
-    return Geolocator.getPositionStream(
-      locationSettings: locationSettings,
-    );
+    return Geolocator.getPositionStream(locationSettings: locationSettings);
   }
 
   double distanceToPlace(Position position, HeritagePlace place) {
@@ -820,9 +1260,8 @@ class LocationService {
     final sorted = [...heritagePlaces];
 
     sorted.sort(
-      (a, b) => distanceToPlace(position, a).compareTo(
-        distanceToPlace(position, b),
-      ),
+      (a, b) =>
+          distanceToPlace(position, a).compareTo(distanceToPlace(position, b)),
     );
 
     return sorted.first;
@@ -860,11 +1299,7 @@ class _SplashScreenState extends State<SplashScreen> {
         height: double.infinity,
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [
-              AppColors.deepBrown,
-              AppColors.brown,
-              AppColors.clay,
-            ],
+            colors: [AppColors.deepBrown, AppColors.brown, AppColors.clay],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -872,11 +1307,7 @@ class _SplashScreenState extends State<SplashScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.travel_explore_rounded,
-              size: 92,
-              color: AppColors.gold,
-            ),
+            Icon(Icons.travel_explore_rounded, size: 92, color: AppColors.gold),
             SizedBox(height: 18),
             Text(
               'HeritageBot',
@@ -941,9 +1372,7 @@ class LoadingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(child: CircularProgressIndicator()),
-    );
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 }
 
@@ -977,11 +1406,6 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
     selectedLanguageCode = LanguageController.current.value.code;
   }
 
-  bool isValidGmailAddress(String email) {
-    final trimmed = email.trim().toLowerCase();
-    return RegExp(r'^[a-zA-Z0-9._%+\-]+@gmail\.com$').hasMatch(trimmed);
-  }
-
   Future<void> submitEmail() async {
     final email = emailController.text.trim();
     final password = passwordController.text;
@@ -1004,13 +1428,6 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
 
     if (isSignup && password != confirmPassword) {
       showMessage(t('passwordsDoNotMatch'));
-      return;
-    }
-
-    if (isSignup && !isValidGmailAddress(email)) {
-      showMessage(
-        'Please use a valid Gmail address ending in @gmail.com. You must verify the Gmail link before entering the system.',
-      );
       return;
     }
 
@@ -1175,10 +1592,7 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(22),
-            borderSide: const BorderSide(
-              color: AppColors.gold,
-              width: 1.7,
-            ),
+            borderSide: const BorderSide(color: AppColors.gold, width: 1.7),
           ),
         ),
       ),
@@ -1198,10 +1612,7 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
         style: OutlinedButton.styleFrom(
           backgroundColor: Colors.white,
           foregroundColor: AppColors.brown,
-          side: const BorderSide(
-            color: AppColors.gold,
-            width: 1.4,
-          ),
+          side: const BorderSide(color: AppColors.gold, width: 1.4),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
           ),
@@ -1228,7 +1639,6 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
     );
   }
 
-
   Widget languageSelector() {
     return Container(
       decoration: BoxDecoration(
@@ -1247,7 +1657,10 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
         isExpanded: true,
         icon: const Icon(Icons.keyboard_arrow_down_rounded),
         decoration: InputDecoration(
-          prefixIcon: const Icon(Icons.language_rounded, color: AppColors.brown),
+          prefixIcon: const Icon(
+            Icons.language_rounded,
+            color: AppColors.brown,
+          ),
           labelText: t('preferredLanguage'),
           labelStyle: const TextStyle(
             color: Colors.black54,
@@ -1265,10 +1678,7 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(22),
-            borderSide: const BorderSide(
-              color: AppColors.gold,
-              width: 1.7,
-            ),
+            borderSide: const BorderSide(color: AppColors.gold, width: 1.7),
           ),
         ),
         items: supportedLanguages
@@ -1316,11 +1726,7 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
           height: double.infinity,
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [
-                AppColors.deepBrown,
-                AppColors.brown,
-                AppColors.clay,
-              ],
+              colors: [AppColors.deepBrown, AppColors.brown, AppColors.clay],
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
             ),
@@ -1497,8 +1903,8 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
                               loading
                                   ? t('pleaseWait')
                                   : isSignup
-                                      ? t('createAndSendLink')
-                                      : t('login'),
+                                  ? t('createAndSendLink')
+                                  : t('login'),
                               style: const TextStyle(
                                 fontWeight: FontWeight.w900,
                                 fontSize: 16,
@@ -1559,9 +1965,7 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
                               });
                             },
                       child: Text(
-                        isSignup
-                            ? t('alreadyHaveAccount')
-                            : t('noAccount'),
+                        isSignup ? t('alreadyHaveAccount') : t('noAccount'),
                         style: const TextStyle(
                           fontWeight: FontWeight.w900,
                           color: AppColors.brown,
@@ -1584,10 +1988,7 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
 class EmailVerificationScreen extends StatefulWidget {
   final String email;
 
-  const EmailVerificationScreen({
-    super.key,
-    required this.email,
-  });
+  const EmailVerificationScreen({super.key, required this.email});
 
   @override
   State<EmailVerificationScreen> createState() =>
@@ -1653,10 +2054,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
 
   void showMessage(String text) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(text),
-        behavior: SnackBarBehavior.floating,
-      ),
+      SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
     );
   }
 
@@ -1670,11 +2068,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
           height: double.infinity,
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [
-                AppColors.deepBrown,
-                AppColors.brown,
-                AppColors.clay,
-              ],
+              colors: [AppColors.deepBrown, AppColors.brown, AppColors.clay],
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
             ),
@@ -1799,17 +2193,35 @@ class _MainShellState extends State<MainShell> {
       valueListenable: LanguageController.current,
       builder: (context, language, _) {
         final code = language.code;
-        final screens = const [HomeScreen(), GeolocationScreen(), MyJournalScreen(), ProfileScreen()];
+        final screens = const [
+          HomeScreen(),
+          GeolocationScreen(),
+          MyJournalScreen(),
+          ProfileScreen(),
+        ];
         return Scaffold(
           body: screens[currentIndex],
           bottomNavigationBar: NavigationBar(
             selectedIndex: currentIndex,
-            onDestinationSelected: (index) => setState(() => currentIndex = index),
+            onDestinationSelected: (index) =>
+                setState(() => currentIndex = index),
             destinations: [
-              NavigationDestination(icon: const Icon(Icons.home_rounded), label: appText(code, 'home')),
-              NavigationDestination(icon: const Icon(Icons.map_rounded), label: appText(code, 'geolocation')),
-              NavigationDestination(icon: const Icon(Icons.book_rounded), label: appText(code, 'myJournal')),
-              NavigationDestination(icon: const Icon(Icons.person_rounded), label: appText(code, 'profile')),
+              NavigationDestination(
+                icon: const Icon(Icons.home_rounded),
+                label: appText(code, 'home'),
+              ),
+              NavigationDestination(
+                icon: const Icon(Icons.map_rounded),
+                label: appText(code, 'geolocation'),
+              ),
+              NavigationDestination(
+                icon: const Icon(Icons.book_rounded),
+                label: appText(code, 'myJournal'),
+              ),
+              NavigationDestination(
+                icon: const Icon(Icons.person_rounded),
+                label: appText(code, 'profile'),
+              ),
             ],
           ),
         );
@@ -1825,7 +2237,9 @@ class HomeScreen extends StatelessWidget {
     if (!place.hasVideo) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(appText(LanguageController.current.value.code, 'noVideoBody')),
+          content: Text(
+            appText(LanguageController.current.value.code, 'noVideoBody'),
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -1834,15 +2248,15 @@ class HomeScreen extends StatelessWidget {
 
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => HeritageVideoScreen(place: place),
-      ),
+      MaterialPageRoute(builder: (_) => HeritageVideoScreen(place: place)),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final videoPlaces = heritagePlaces.where((place) => place.hasVideo).toList();
+    final videoPlaces = heritagePlaces
+        .where((place) => place.hasVideo)
+        .toList();
     return ValueListenableBuilder<AppLanguage>(
       valueListenable: LanguageController.current,
       builder: (context, language, _) {
@@ -1855,27 +2269,76 @@ class HomeScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(22),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [AppColors.brown, AppColors.clay], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                  gradient: const LinearGradient(
+                    colors: [AppColors.brown, AppColors.clay],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
                   borderRadius: BorderRadius.circular(30),
                 ),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Icon(Icons.travel_explore_rounded, size: 58, color: AppColors.gold),
-                  const SizedBox(height: 14),
-                  Text(appText(code, 'welcomeHome'), style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900)),
-                  const SizedBox(height: 10),
-                  Text(appText(code, 'homeIntro'), style: const TextStyle(color: Colors.white, fontSize: 15.5, height: 1.45, fontWeight: FontWeight.w500)),
-                ]),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.travel_explore_rounded,
+                      size: 58,
+                      color: AppColors.gold,
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      appText(code, 'welcomeHome'),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 28,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      appText(code, 'homeIntro'),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15.5,
+                        height: 1.45,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 24),
-              SectionTitle(title: appText(code, 'aboutSystem'), subtitle: appText(code, 'aboutSystemBody')),
+              SectionTitle(
+                title: appText(code, 'aboutSystem'),
+                subtitle: appText(code, 'aboutSystemBody'),
+              ),
               const SizedBox(height: 16),
-              InfoCard(icon: Icons.auto_awesome_rounded, title: appText(code, 'aiStoryTitle'), body: appText(code, 'aiStoryBody')),
-              InfoCard(icon: Icons.directions_walk_rounded, title: appText(code, 'liveMapTitle'), body: appText(code, 'liveMapBody')),
-              InfoCard(icon: Icons.book_rounded, title: appText(code, 'memoryJournalTitle'), body: appText(code, 'memoryJournalBody')),
+              InfoCard(
+                icon: Icons.auto_awesome_rounded,
+                title: appText(code, 'aiStoryTitle'),
+                body: appText(code, 'aiStoryBody'),
+              ),
+              InfoCard(
+                icon: Icons.directions_walk_rounded,
+                title: appText(code, 'liveMapTitle'),
+                body: appText(code, 'liveMapBody'),
+              ),
+              InfoCard(
+                icon: Icons.book_rounded,
+                title: appText(code, 'memoryJournalTitle'),
+                body: appText(code, 'memoryJournalBody'),
+              ),
               const SizedBox(height: 8),
-              SectionTitle(title: appText(code, 'heritageVideos'), subtitle: ''),
+              SectionTitle(
+                title: appText(code, 'heritageVideos'),
+                subtitle: '',
+              ),
               const SizedBox(height: 8),
-              ...videoPlaces.map((place) => VideoPlaceCard(place: place, onTap: () => openVideo(context, place))),
+              ...videoPlaces.map(
+                (place) => VideoPlaceCard(
+                  place: place,
+                  onTap: () => openVideo(context, place),
+                ),
+              ),
             ],
           ),
         );
@@ -1884,14 +2347,10 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-
 class HeritageVideoScreen extends StatelessWidget {
   final HeritagePlace place;
 
-  const HeritageVideoScreen({
-    super.key,
-    required this.place,
-  });
+  const HeritageVideoScreen({super.key, required this.place});
 
   @override
   Widget build(BuildContext context) {
@@ -1901,9 +2360,7 @@ class HeritageVideoScreen extends StatelessWidget {
         final code = language.code;
 
         return Scaffold(
-          appBar: AppBar(
-            title: Text(place.name),
-          ),
+          appBar: AppBar(title: Text(place.name)),
           body: ListView(
             padding: const EdgeInsets.all(18),
             children: [
@@ -1932,7 +2389,6 @@ class HeritageVideoScreen extends StatelessWidget {
   }
 }
 
-
 class GeolocationScreen extends StatefulWidget {
   const GeolocationScreen({super.key});
 
@@ -1945,10 +2401,6 @@ class _GeolocationScreenState extends State<GeolocationScreen> {
   final JournalService journalService = JournalService();
   final GeminiStoryService geminiStoryService = GeminiStoryService();
   final LanguageService languageService = LanguageService();
-  final GeminiImageService geminiImageService = GeminiImageService(
-    apiKey: geminiApiKey,
-    model: geminiImageModel,
-  );
   final MapController mapController = MapController();
 
   Position? currentPosition;
@@ -2028,15 +2480,13 @@ class _GeolocationScreenState extends State<GeolocationScreen> {
     });
 
     try {
-      mapController.move(
-        LatLng(position.latitude, position.longitude),
-        17,
-      );
+      mapController.move(LatLng(position.latitude, position.longitude), 17);
     } catch (_) {}
 
     if (distance <= nearbyRadiusMeters) {
       final now = DateTime.now();
-      final enoughTimePassed = lastPopupTime == null ||
+      final enoughTimePassed =
+          lastPopupTime == null ||
           now.difference(lastPopupTime!).inSeconds >= 30;
 
       if (!popupIsOpen && (lastPopupPlaceId != place.id || enoughTimePassed)) {
@@ -2047,12 +2497,7 @@ class _GeolocationScreenState extends State<GeolocationScreen> {
 
         if (!mounted) return;
 
-        await showPlacePopup(
-          place,
-          entries,
-          distance,
-          position.speed,
-        );
+        await showPlacePopup(place, entries, distance, position.speed);
       }
     } else if (!autoMode) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2109,17 +2554,6 @@ class _GeolocationScreenState extends State<GeolocationScreen> {
       preferredLanguage: preferredLanguage,
     );
 
-    final imageFuture = storyFuture.then(
-      (story) => geminiImageService.generateLocationImage(
-        placeId: place.id,
-        placeName: place.name,
-        location: place.location,
-        historicalFacts: place.historicalFacts,
-        story: story,
-        languageName: preferredLanguage.name,
-      ),
-    );
-
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -2159,51 +2593,37 @@ class _GeolocationScreenState extends State<GeolocationScreen> {
                     if (!snapshot.hasData) {
                       return InfoCard(
                         icon: Icons.auto_awesome_rounded,
-                        title: appText(preferredLanguage.code, 'generatingStory'),
-                        body: appText(preferredLanguage.code, 'generatingStoryBody'),
+                        title: appText(
+                          preferredLanguage.code,
+                          'generatingStory',
+                        ),
+                        body: appText(
+                          preferredLanguage.code,
+                          'generatingStoryBody',
+                        ),
                       );
                     }
 
                     return InfoCard(
                       icon: Icons.auto_awesome_rounded,
-                      title: appText(preferredLanguage.code, 'contextStoryTitle'),
+                      title: appText(
+                        preferredLanguage.code,
+                        'contextStoryTitle',
+                      ),
                       body: snapshot.data!,
                     );
                   },
                 ),
                 const SizedBox(height: 12),
-                FutureBuilder<GeneratedHeritageImage?>(
-                  future: imageFuture,
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return InfoCard(
-                        icon: Icons.image_rounded,
-                        title: appText(preferredLanguage.code, 'generatingImage'),
-                        body: appText(preferredLanguage.code, 'generatingImageBody'),
-                      );
-                    }
-
-                    final generatedImage = snapshot.data;
-
-                    if (generatedImage == null) {
-                      return AiGeneratedImageCard(
-                        image: const GeneratedHeritageImage(
-                          base64Data: '',
-                          mimeType: 'application/x-heritagebot-fallback',
-                          promptSummary: '',
-                          isFallback: true,
-                        ),
-                        languageCode: preferredLanguage.code,
-                        place: place,
-                      );
-                    }
-
-                    return AiGeneratedImageCard(
-                      image: generatedImage,
-                      languageCode: preferredLanguage.code,
-                      place: place,
-                    );
-                  },
+                AiGeneratedImageCard(
+                  image: const GeneratedHeritageImage(
+                    base64Data: '',
+                    mimeType: 'application/x-heritagebot-photo-carousel',
+                    promptSummary: '',
+                    isFallback: true,
+                  ),
+                  languageCode: preferredLanguage.code,
+                  place: place,
                 ),
                 const SizedBox(height: 12),
                 if (place.videoAsset != null)
@@ -2245,10 +2665,7 @@ class _GeolocationScreenState extends State<GeolocationScreen> {
                 ),
                 const SizedBox(height: 10),
                 ...entries.map(
-                  (entry) => JournalCard(
-                    entry: entry,
-                    onDelete: null,
-                  ),
+                  (entry) => JournalCard(entry: entry, onDelete: null),
                 ),
               ],
             );
@@ -2267,16 +2684,17 @@ class _GeolocationScreenState extends State<GeolocationScreen> {
         : LatLng(currentPosition!.latitude, currentPosition!.longitude);
 
     return Scaffold(
-      appBar: AppBar(title: Text(appText(LanguageController.current.value.code, 'liveGeolocation'))),
+      appBar: AppBar(
+        title: Text(
+          appText(LanguageController.current.value.code, 'liveGeolocation'),
+        ),
+      ),
       body: Column(
         children: [
           Expanded(
             child: FlutterMap(
               mapController: mapController,
-              options: MapOptions(
-                initialCenter: center,
-                initialZoom: 16,
-              ),
+              options: MapOptions(initialCenter: center, initialZoom: 16),
               children: [
                 TileLayer(
                   urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -2307,13 +2725,13 @@ class _GeolocationScreenState extends State<GeolocationScreen> {
                           place.id == 'uclm'
                               ? Icons.school_rounded
                               : place.hasVideo
-                                  ? Icons.video_library_rounded
-                                  : Icons.location_on_rounded,
+                              ? Icons.video_library_rounded
+                              : Icons.location_on_rounded,
                           color: place.id == 'uclm'
                               ? Colors.deepPurple
                               : place.hasVideo
-                                  ? Colors.orange
-                                  : Colors.red,
+                              ? Colors.orange
+                              : Colors.red,
                           size: 38,
                         ),
                       ),
@@ -2333,7 +2751,10 @@ class _GeolocationScreenState extends State<GeolocationScreen> {
               children: [
                 if (loading)
                   Text(
-                    appText(LanguageController.current.value.code, 'startingLocation'),
+                    appText(
+                      LanguageController.current.value.code,
+                      'startingLocation',
+                    ),
                     style: const TextStyle(
                       fontWeight: FontWeight.w900,
                       color: AppColors.deepBrown,
@@ -2359,7 +2780,10 @@ class _GeolocationScreenState extends State<GeolocationScreen> {
                   ),
                 const SizedBox(height: 8),
                 Text(
-                  appText(LanguageController.current.value.code, 'mapInstruction'),
+                  appText(
+                    LanguageController.current.value.code,
+                    'mapInstruction',
+                  ),
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontSize: 11, color: Colors.black54),
                 ),
@@ -2367,7 +2791,12 @@ class _GeolocationScreenState extends State<GeolocationScreen> {
                 TextButton.icon(
                   onPressed: loading ? null : forceRefresh,
                   icon: const Icon(Icons.refresh_rounded),
-                  label: Text(appText(LanguageController.current.value.code, 'refreshLocation')),
+                  label: Text(
+                    appText(
+                      LanguageController.current.value.code,
+                      'refreshLocation',
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -2405,40 +2834,6 @@ class _MyJournalScreenState extends State<MyJournalScreen> {
     setState(reload);
   }
 
-  HeritagePlace placeForEntry(JournalEntry entry) {
-    return heritagePlaces.firstWhere(
-      (place) => place.id == entry.placeId,
-      orElse: () => HeritagePlace(
-        id: entry.placeId,
-        name: entry.placeName,
-        location: 'Saved journal place',
-        lat: 0,
-        lng: 0,
-        historicalFacts: '',
-        videoTitle: '',
-        wikipediaTitle: entry.placeName,
-      ),
-    );
-  }
-
-  Future<void> openEdit(JournalEntry entry) async {
-    final place = placeForEntry(entry);
-
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => AddJournalScreen(
-          place: place,
-          existingEntry: entry,
-        ),
-      ),
-    );
-
-    if (mounted) {
-      setState(reload);
-    }
-  }
-
   void openAddManual() {
     showModalBottomSheet(
       context: context,
@@ -2449,8 +2844,14 @@ class _MyJournalScreenState extends State<MyJournalScreen> {
           padding: const EdgeInsets.all(18),
           children: [
             SectionTitle(
-              title: appText(LanguageController.current.value.code, 'chooseHeritagePlace'),
-              subtitle: appText(LanguageController.current.value.code, 'chooseHeritagePlaceBody'),
+              title: appText(
+                LanguageController.current.value.code,
+                'chooseHeritagePlace',
+              ),
+              subtitle: appText(
+                LanguageController.current.value.code,
+                'chooseHeritagePlaceBody',
+              ),
             ),
             const SizedBox(height: 12),
             ...heritagePlaces.map(
@@ -2483,7 +2884,9 @@ class _MyJournalScreenState extends State<MyJournalScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(appText(LanguageController.current.value.code, 'myJournal')),
+        title: Text(
+          appText(LanguageController.current.value.code, 'myJournal'),
+        ),
         actions: [
           IconButton(
             onPressed: openAddManual,
@@ -2515,15 +2918,12 @@ class _MyJournalScreenState extends State<MyJournalScreen> {
 
           return ListView(
             padding: const EdgeInsets.all(18),
-            children: entries.map(
-              (entry) {
-                return JournalCard(
-                  entry: entry,
-                  onEdit: () => openEdit(entry),
-                  onDelete: () => deleteEntry(entry.id),
-                );
-              },
-            ).toList(),
+            children: entries.map((entry) {
+              return JournalCard(
+                entry: entry,
+                onDelete: () => deleteEntry(entry.id),
+              );
+            }).toList(),
           );
         },
       ),
@@ -2533,13 +2933,8 @@ class _MyJournalScreenState extends State<MyJournalScreen> {
 
 class AddJournalScreen extends StatefulWidget {
   final HeritagePlace place;
-  final JournalEntry? existingEntry;
 
-  const AddJournalScreen({
-    super.key,
-    required this.place,
-    this.existingEntry,
-  });
+  const AddJournalScreen({super.key, required this.place});
 
   @override
   State<AddJournalScreen> createState() => _AddJournalScreenState();
@@ -2554,21 +2949,6 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
   List<String> imagePaths = [];
   List<String> videoPaths = [];
   bool saving = false;
-
-  bool get isEditing => widget.existingEntry != null;
-
-  @override
-  void initState() {
-    super.initState();
-
-    final existingEntry = widget.existingEntry;
-
-    if (existingEntry != null) {
-      letterController.text = existingEntry.letter;
-      imagePaths = List<String>.from(existingEntry.imagePaths);
-      videoPaths = List<String>.from(existingEntry.videoPaths);
-    }
-  }
 
   Future<String> copyPickedFileToPermanentStorage(
     XFile pickedFile,
@@ -2587,10 +2967,7 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
         ? pickedFile.path.split('/').last
         : pickedFile.name.trim();
 
-    final safeName = originalName.replaceAll(
-      RegExp(r'[^A-Za-z0-9._-]'),
-      '_',
-    );
+    final safeName = originalName.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
 
     final newPath =
         '${mediaDirectory.path}/${DateTime.now().microsecondsSinceEpoch}_$safeName';
@@ -2628,9 +3005,7 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
         imagePaths.isEmpty &&
         videoPaths.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please add a letter, photo, or video.'),
-        ),
+        const SnackBar(content: Text('Please add a letter, photo, or video.')),
       );
       return;
     }
@@ -2648,26 +3023,20 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
       }
 
       final now = DateTime.now();
-      final existingEntry = widget.existingEntry;
 
       final entry = JournalEntry(
-        id: existingEntry?.id ?? now.microsecondsSinceEpoch.toString(),
+        id: now.microsecondsSinceEpoch.toString(),
         userId: userId,
         placeId: widget.place.id,
         placeName: widget.place.name,
         letter: letterController.text.trim(),
         imagePaths: List<String>.from(imagePaths),
         videoPaths: List<String>.from(videoPaths),
-        createdAt: existingEntry?.createdAt ?? now.toIso8601String(),
-        createdAtMillis:
-            existingEntry?.createdAtMillis ?? now.millisecondsSinceEpoch,
+        createdAt: now.toIso8601String(),
+        createdAtMillis: now.millisecondsSinceEpoch,
       );
 
-      if (isEditing) {
-        await journalService.updateEntry(entry);
-      } else {
-        await journalService.addEntry(entry);
-      }
+      await journalService.addEntry(entry);
     } catch (e) {
       if (!mounted) return;
 
@@ -2689,9 +3058,7 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          isEditing
-              ? 'Journal memory updated.'
-              : appText(LanguageController.current.value.code, 'journalSaved'),
+          appText(LanguageController.current.value.code, 'journalSaved'),
         ),
       ),
     );
@@ -2710,9 +3077,7 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          isEditing
-              ? 'Edit Memory'
-              : appText(LanguageController.current.value.code, 'addMemory'),
+          appText(LanguageController.current.value.code, 'addMemory'),
         ),
       ),
       body: ListView(
@@ -2720,14 +3085,20 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
         children: [
           SectionTitle(
             title: widget.place.name,
-            subtitle: appText(LanguageController.current.value.code, 'addMemorySubtitle'),
+            subtitle: appText(
+              LanguageController.current.value.code,
+              'addMemorySubtitle',
+            ),
           ),
           const SizedBox(height: 14),
           TextField(
             controller: letterController,
             maxLines: 8,
             decoration: inputDecoration(
-              label: appText(LanguageController.current.value.code, 'writeMemoryLetter'),
+              label: appText(
+                LanguageController.current.value.code,
+                'writeMemoryLetter',
+              ),
               icon: Icons.edit_note_rounded,
             ),
           ),
@@ -2763,43 +3134,15 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: imagePaths.asMap().entries.map((item) {
-                final index = item.key;
-                final path = item.value;
-
-                return Stack(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(14),
-                      child: Image.file(
-                        File(path),
-                        width: 95,
-                        height: 95,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                    Positioned(
-                      top: 2,
-                      right: 2,
-                      child: InkWell(
-                        onTap: () {
-                          setState(() => imagePaths.removeAt(index));
-                        },
-                        child: Container(
-                          decoration: const BoxDecoration(
-                            color: Colors.black54,
-                            shape: BoxShape.circle,
-                          ),
-                          padding: const EdgeInsets.all(4),
-                          child: const Icon(
-                            Icons.close_rounded,
-                            color: Colors.white,
-                            size: 16,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+              children: imagePaths.map((path) {
+                return ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Image.file(
+                    File(path),
+                    width: 95,
+                    height: 95,
+                    fit: BoxFit.cover,
+                  ),
                 );
               }).toList(),
             ),
@@ -2811,44 +3154,14 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
               style: TextStyle(fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 8),
-            ...videoPaths.asMap().entries.map(
-              (item) {
-                final index = item.key;
-                final path = item.value;
-
-                return Stack(
-                  children: [
-                    LocalJournalVideoPlayer(
-                      filePath: path,
-                      title: appText(
-                        LanguageController.current.value.code,
-                        'attachedVideo',
-                      ),
-                    ),
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: InkWell(
-                        onTap: () {
-                          setState(() => videoPaths.removeAt(index));
-                        },
-                        child: Container(
-                          decoration: const BoxDecoration(
-                            color: Colors.black54,
-                            shape: BoxShape.circle,
-                          ),
-                          padding: const EdgeInsets.all(5),
-                          child: const Icon(
-                            Icons.close_rounded,
-                            color: Colors.white,
-                            size: 18,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
+            ...videoPaths.map(
+              (path) => LocalJournalVideoPlayer(
+                filePath: path,
+                title: appText(
+                  LanguageController.current.value.code,
+                  'attachedVideo',
+                ),
+              ),
             ),
             const SizedBox(height: 14),
           ],
@@ -2858,9 +3171,10 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
             label: Text(
               saving
                   ? appText(LanguageController.current.value.code, 'saving')
-                  : isEditing
-                      ? 'Update Memory'
-                      : appText(LanguageController.current.value.code, 'saveMemory'),
+                  : appText(
+                      LanguageController.current.value.code,
+                      'saveMemory',
+                    ),
             ),
             style: mainButtonStyle(),
           ),
@@ -2881,7 +3195,13 @@ class ProfileScreen extends StatelessWidget {
     final messenger = ScaffoldMessenger.maybeOf(context);
     if (messenger == null) return;
     messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(SnackBar(content: Text(text), behavior: SnackBarBehavior.floating, duration: const Duration(seconds: 3)));
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(text),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   Widget profileLanguageSelector(BuildContext context, String code) {
@@ -2891,25 +3211,56 @@ class ProfileScreen extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            CircleAvatar(backgroundColor: AppColors.gold.withOpacity(0.35), child: const Icon(Icons.language_rounded, color: AppColors.brown)),
-            const SizedBox(width: 12),
-            Expanded(child: Text(appText(code, 'languageSettings'), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: AppColors.deepBrown))),
-          ]),
-          const SizedBox(height: 14),
-          DropdownButtonFormField<String>(
-            value: code,
-            isExpanded: true,
-            decoration: inputDecoration(label: appText(code, 'preferredLanguage'), icon: Icons.translate_rounded),
-            items: supportedLanguages.map((language) => DropdownMenuItem<String>(value: language.code, child: Text(language.name))).toList(),
-            onChanged: (value) async {
-              if (value == null) return;
-              await LanguageController.setLanguageCode(value);
-              if (context.mounted) showProfileMessage(context, appText(value, 'languageSaved'));
-            },
-          ),
-        ]),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: AppColors.gold.withOpacity(0.35),
+                  child: const Icon(
+                    Icons.language_rounded,
+                    color: AppColors.brown,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    appText(code, 'languageSettings'),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 17,
+                      color: AppColors.deepBrown,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            DropdownButtonFormField<String>(
+              value: code,
+              isExpanded: true,
+              decoration: inputDecoration(
+                label: appText(code, 'preferredLanguage'),
+                icon: Icons.translate_rounded,
+              ),
+              items: supportedLanguages
+                  .map(
+                    (language) => DropdownMenuItem<String>(
+                      value: language.code,
+                      child: Text(language.name),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) async {
+                if (value == null) return;
+                await LanguageController.setLanguageCode(value);
+                if (context.mounted)
+                  showProfileMessage(context, appText(value, 'languageSaved'));
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2917,44 +3268,105 @@ class ProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final User? user = FirebaseAuth.instance.currentUser;
-    final bool isPasswordAccount = user != null && AuthService().isPasswordUser(user);
+    final bool isPasswordAccount =
+        user != null && AuthService().isPasswordUser(user);
     return ValueListenableBuilder<AppLanguage>(
       valueListenable: LanguageController.current,
       builder: (context, language, _) {
         final code = language.code;
         return Scaffold(
           appBar: AppBar(title: Text(appText(code, 'profile'))),
-          body: ListView(padding: const EdgeInsets.all(18), children: [
-            Container(
-              padding: const EdgeInsets.all(22),
-              decoration: BoxDecoration(color: AppColors.card, borderRadius: BorderRadius.circular(28)),
-              child: Column(children: [
-                CircleAvatar(
-                  radius: 42,
-                  backgroundColor: AppColors.gold,
-                  backgroundImage: user?.photoURL == null ? null : NetworkImage(user!.photoURL!),
-                  child: user?.photoURL == null ? const Icon(Icons.person_rounded, size: 50, color: AppColors.brown) : null,
+          body: ListView(
+            padding: const EdgeInsets.all(18),
+            children: [
+              Container(
+                padding: const EdgeInsets.all(22),
+                decoration: BoxDecoration(
+                  color: AppColors.card,
+                  borderRadius: BorderRadius.circular(28),
                 ),
-                const SizedBox(height: 14),
-                Text(user?.displayName ?? appText(code, 'profileUser'), style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: AppColors.deepBrown)),
-                const SizedBox(height: 4),
-                Text(user?.email ?? appText(code, 'noEmail'), style: const TextStyle(color: Colors.black54)),
-                const SizedBox(height: 18),
-                SizedBox(width: double.infinity, child: ElevatedButton.icon(
-                  onPressed: isPasswordAccount ? () { Navigator.push(context, MaterialPageRoute(builder: (_) => const ChangePasswordScreen())); } : () { showProfileMessage(context, appText(code, 'changePasswordUnavailableMsg')); },
-                  icon: const Icon(Icons.lock_reset_rounded),
-                  label: Text(isPasswordAccount ? appText(code, 'changePassword') : appText(code, 'changePasswordUnavailable')),
-                  style: mainButtonStyle(),
-                )),
-                const SizedBox(height: 12),
-                SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: () => logout(context), icon: const Icon(Icons.logout_rounded), label: Text(appText(code, 'logout')), style: mainButtonStyle())),
-              ]),
-            ),
-            const SizedBox(height: 18),
-            profileLanguageSelector(context, code),
-            const SizedBox(height: 18),
-            InfoCard(icon: Icons.info_rounded, title: appText(code, 'systemNote'), body: appText(code, 'systemNoteBody')),
-          ]),
+                child: Column(
+                  children: [
+                    CircleAvatar(
+                      radius: 42,
+                      backgroundColor: AppColors.gold,
+                      backgroundImage: user?.photoURL == null
+                          ? null
+                          : NetworkImage(user!.photoURL!),
+                      child: user?.photoURL == null
+                          ? const Icon(
+                              Icons.person_rounded,
+                              size: 50,
+                              color: AppColors.brown,
+                            )
+                          : null,
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      user?.displayName ?? appText(code, 'profileUser'),
+                      style: const TextStyle(
+                        fontSize: 21,
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.deepBrown,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      user?.email ?? appText(code, 'noEmail'),
+                      style: const TextStyle(color: Colors.black54),
+                    ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: isPasswordAccount
+                            ? () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        const ChangePasswordScreen(),
+                                  ),
+                                );
+                              }
+                            : () {
+                                showProfileMessage(
+                                  context,
+                                  appText(code, 'changePasswordUnavailableMsg'),
+                                );
+                              },
+                        icon: const Icon(Icons.lock_reset_rounded),
+                        label: Text(
+                          isPasswordAccount
+                              ? appText(code, 'changePassword')
+                              : appText(code, 'changePasswordUnavailable'),
+                        ),
+                        style: mainButtonStyle(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () => logout(context),
+                        icon: const Icon(Icons.logout_rounded),
+                        label: Text(appText(code, 'logout')),
+                        style: mainButtonStyle(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              profileLanguageSelector(context, code),
+              const SizedBox(height: 18),
+              InfoCard(
+                icon: Icons.info_rounded,
+                title: appText(code, 'systemNote'),
+                body: appText(code, 'systemNoteBody'),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -3165,7 +3577,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                       ),
                     )
                   : const Icon(Icons.save_rounded),
-              label: Text(loading ? 'Changing Password...' : 'Save New Password'),
+              label: Text(
+                loading ? 'Changing Password...' : 'Save New Password',
+              ),
               style: mainButtonStyle(),
             ),
           ),
@@ -3186,11 +3600,7 @@ class VideoPlaceCard extends StatelessWidget {
   final HeritagePlace place;
   final VoidCallback onTap;
 
-  const VideoPlaceCard({
-    super.key,
-    required this.place,
-    required this.onTap,
-  });
+  const VideoPlaceCard({super.key, required this.place, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -3222,14 +3632,10 @@ class VideoPlaceCard extends StatelessWidget {
   }
 }
 
-
 class LocalJournalImageThumb extends StatelessWidget {
   final String path;
 
-  const LocalJournalImageThumb({
-    super.key,
-    required this.path,
-  });
+  const LocalJournalImageThumb({super.key, required this.path});
 
   @override
   Widget build(BuildContext context) {
@@ -3248,26 +3654,15 @@ class LocalJournalImageThumb extends StatelessWidget {
       );
     }
 
-    return Image.file(
-      file,
-      width: 82,
-      height: 82,
-      fit: BoxFit.cover,
-    );
+    return Image.file(file, width: 82, height: 82, fit: BoxFit.cover);
   }
 }
 
 class JournalCard extends StatelessWidget {
   final JournalEntry entry;
-  final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
-  const JournalCard({
-    super.key,
-    required this.entry,
-    this.onEdit,
-    required this.onDelete,
-  });
+  const JournalCard({super.key, required this.entry, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -3297,19 +3692,9 @@ class JournalCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (onEdit != null)
-                  IconButton(
-                    onPressed: onEdit,
-                    tooltip: 'Edit',
-                    icon: const Icon(
-                      Icons.edit_rounded,
-                      color: AppColors.brown,
-                    ),
-                  ),
                 if (onDelete != null)
                   IconButton(
                     onPressed: onDelete,
-                    tooltip: 'Delete',
                     icon: const Icon(
                       Icons.delete_rounded,
                       color: Colors.redAccent,
@@ -3319,10 +3704,7 @@ class JournalCard extends StatelessWidget {
             ),
             if (entry.letter.isNotEmpty) ...[
               const SizedBox(height: 12),
-              Text(
-                entry.letter,
-                style: const TextStyle(height: 1.45),
-              ),
+              Text(entry.letter, style: const TextStyle(height: 1.45)),
             ],
             if (entry.imagePaths.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -3370,7 +3752,6 @@ class JournalCard extends StatelessWidget {
   }
 }
 
-
 class LocalJournalVideoPlayer extends StatefulWidget {
   final String filePath;
   final String title;
@@ -3382,7 +3763,8 @@ class LocalJournalVideoPlayer extends StatefulWidget {
   });
 
   @override
-  State<LocalJournalVideoPlayer> createState() => _LocalJournalVideoPlayerState();
+  State<LocalJournalVideoPlayer> createState() =>
+      _LocalJournalVideoPlayerState();
 }
 
 class _LocalJournalVideoPlayerState extends State<LocalJournalVideoPlayer> {
@@ -3537,7 +3919,9 @@ class _LocalJournalVideoPlayerState extends State<LocalJournalVideoPlayer> {
                       : Icons.play_arrow_rounded,
                 ),
                 label: Text(
-                  videoController.value.isPlaying ? 'Pause Video' : 'Play Video',
+                  videoController.value.isPlaying
+                      ? 'Pause Video'
+                      : 'Play Video',
                 ),
                 style: mainButtonStyle(),
               ),
@@ -3572,17 +3956,19 @@ class _HeritageVideoPlayerState extends State<HeritageVideoPlayer> {
     super.initState();
 
     controller = VideoPlayerController.asset(widget.assetPath)
-      ..initialize().then((_) {
-        if (mounted) {
-          setState(() {});
-        }
-      }).catchError((error) {
-        if (mounted) {
-          setState(() {
-            hasError = true;
+      ..initialize()
+          .then((_) {
+            if (mounted) {
+              setState(() {});
+            }
+          })
+          .catchError((error) {
+            if (mounted) {
+              setState(() {
+                hasError = true;
+              });
+            }
           });
-        }
-      });
   }
 
   @override
@@ -3617,9 +4003,7 @@ class _HeritageVideoPlayerState extends State<HeritageVideoPlayer> {
     return Card(
       color: AppColors.card,
       elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
         padding: const EdgeInsets.all(17),
         child: Column(
@@ -3690,11 +4074,7 @@ class SectionTitle extends StatelessWidget {
   final String title;
   final String subtitle;
 
-  const SectionTitle({
-    super.key,
-    required this.title,
-    required this.subtitle,
-  });
+  const SectionTitle({super.key, required this.title, required this.subtitle});
 
   @override
   Widget build(BuildContext context) {
@@ -3712,16 +4092,12 @@ class SectionTitle extends StatelessWidget {
         const SizedBox(height: 5),
         Text(
           subtitle,
-          style: const TextStyle(
-            color: Colors.black54,
-            height: 1.4,
-          ),
+          style: const TextStyle(color: Colors.black54, height: 1.4),
         ),
       ],
     );
   }
 }
-
 
 class AiGeneratedImageCard extends StatelessWidget {
   final GeneratedHeritageImage image;
@@ -3737,106 +4113,8 @@ class AiGeneratedImageCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget imageWidget;
-
-    if (image.isFallback || image.base64Data.trim().isEmpty) {
-      imageWidget = FutureBuilder<String?>(
-        future: PlaceImageService().getPlaceImageUrl(place),
-        builder: (context, snapshot) {
-          final imageUrl = snapshot.data;
-
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return Container(
-              width: double.infinity,
-              height: 220,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                color: AppColors.bg,
-              ),
-              child: const CircularProgressIndicator(color: AppColors.brown),
-            );
-          }
-
-          if (imageUrl == null || imageUrl.trim().isEmpty) {
-            return Container(
-              width: double.infinity,
-              height: 220,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                gradient: const LinearGradient(
-                  colors: [
-                    AppColors.deepBrown,
-                    AppColors.brown,
-                    AppColors.clay,
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(
-                    Icons.travel_explore_rounded,
-                    color: AppColors.gold,
-                    size: 70,
-                  ),
-                  const SizedBox(height: 10),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 18),
-                    child: Text(
-                      place.name,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 18,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          return Image.network(
-            imageUrl,
-            width: double.infinity,
-            height: 220,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) {
-              return Container(
-                width: double.infinity,
-                height: 220,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  color: AppColors.bg,
-                ),
-                child: Text(
-                  place.name,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: AppColors.deepBrown,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      );
-    } else {
-      final imageBytes = base64Decode(image.base64Data);
-      imageWidget = Image.memory(
-        imageBytes,
-        width: double.infinity,
-        height: 220,
-        fit: BoxFit.cover,
-        gaplessPlayback: true,
-      );
-    }
+    final hasGeneratedImage =
+        !image.isFallback && image.base64Data.trim().isNotEmpty;
 
     return Container(
       width: double.infinity,
@@ -3858,13 +4136,11 @@ class AiGeneratedImageCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.image_rounded, color: AppColors.brown),
+              const Icon(Icons.photo_library_rounded, color: AppColors.brown),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  image.isFallback
-                      ? '${appText(languageCode, 'aiImageFallbackTitle')} - ${place.name}'
-                      : appText(languageCode, 'aiImageTitle'),
+                  'Heritage Area Photos - ${place.name}',
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w900,
@@ -3875,19 +4151,242 @@ class AiGeneratedImageCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: imageWidget,
+          FutureBuilder<List<String>>(
+            future: PlaceImageService().getPlaceImageUrls(place, limit: 5),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return Container(
+                  width: double.infinity,
+                  height: 220,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    color: AppColors.bg,
+                  ),
+                  child: const CircularProgressIndicator(
+                    color: AppColors.brown,
+                  ),
+                );
+              }
+
+              final imageUrls = snapshot.data ?? <String>[];
+
+              if (imageUrls.isNotEmpty) {
+                return HeritagePhotoCarousel(
+                  imageUrls: imageUrls,
+                  placeName: place.name,
+                );
+              }
+
+              if (hasGeneratedImage) {
+                return GeneratedImagePreview(image: image, place: place);
+              }
+
+              return HeritagePhotoFallback(place: place);
+            },
           ),
           const SizedBox(height: 8),
-          Text(
-            image.isFallback
-                ? '${appText(languageCode, 'aiImageFallbackBody')} ${place.name}.'
-                : image.promptSummary,
-            style: const TextStyle(
+          const Text(
+            'Swipe left or right to view photos. Photos are retrieved from online open heritage image sources when available; otherwise, the app shows a safe preview.',
+            style: TextStyle(
               color: Colors.black54,
               fontWeight: FontWeight.w600,
               height: 1.35,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class HeritagePhotoCarousel extends StatefulWidget {
+  final List<String> imageUrls;
+  final String placeName;
+
+  const HeritagePhotoCarousel({
+    super.key,
+    required this.imageUrls,
+    required this.placeName,
+  });
+
+  @override
+  State<HeritagePhotoCarousel> createState() => _HeritagePhotoCarouselState();
+}
+
+class _HeritagePhotoCarouselState extends State<HeritagePhotoCarousel> {
+  final PageController _controller = PageController();
+  int _currentIndex = 0;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final total = widget.imageUrls.length;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: SizedBox(
+        width: double.infinity,
+        height: 220,
+        child: Stack(
+          children: [
+            PageView.builder(
+              controller: _controller,
+              itemCount: total,
+              onPageChanged: (index) {
+                setState(() => _currentIndex = index);
+              },
+              itemBuilder: (context, index) {
+                return Image.network(
+                  widget.imageUrls[index],
+                  width: double.infinity,
+                  height: 220,
+                  fit: BoxFit.cover,
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return Container(
+                      color: AppColors.bg,
+                      alignment: Alignment.center,
+                      child: const CircularProgressIndicator(
+                        color: AppColors.brown,
+                      ),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) {
+                    return HeritagePhotoFallback(placeName: widget.placeName);
+                  },
+                );
+              },
+            ),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.55),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '${_currentIndex + 1}/$total',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ),
+            if (total > 1)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 10,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(total, (index) {
+                    final selected = index == _currentIndex;
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      margin: const EdgeInsets.symmetric(horizontal: 3),
+                      width: selected ? 18 : 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? Colors.white
+                            : Colors.white.withOpacity(0.55),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class GeneratedImagePreview extends StatelessWidget {
+  final GeneratedHeritageImage image;
+  final HeritagePlace place;
+
+  const GeneratedImagePreview({
+    super.key,
+    required this.image,
+    required this.place,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    try {
+      final imageBytes = base64Decode(image.base64Data);
+
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Image.memory(
+          imageBytes,
+          width: double.infinity,
+          height: 220,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+        ),
+      );
+    } catch (_) {
+      return HeritagePhotoFallback(place: place);
+    }
+  }
+}
+
+class HeritagePhotoFallback extends StatelessWidget {
+  final HeritagePlace? place;
+  final String? placeName;
+
+  const HeritagePhotoFallback({super.key, this.place, this.placeName});
+
+  @override
+  Widget build(BuildContext context) {
+    final name = placeName ?? place?.name ?? 'Heritage Site';
+
+    return Container(
+      width: double.infinity,
+      height: 220,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: const LinearGradient(
+          colors: [AppColors.deepBrown, AppColors.brown, AppColors.clay],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(
+            Icons.travel_explore_rounded,
+            color: AppColors.gold,
+            size: 70,
+          ),
+          const SizedBox(height: 10),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            child: Text(
+              name,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 18,
+              ),
             ),
           ),
         ],
@@ -3937,10 +4436,7 @@ class InfoCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 5),
-                  Text(
-                    body,
-                    style: const TextStyle(height: 1.4),
-                  ),
+                  Text(body, style: const TextStyle(height: 1.4)),
                 ],
               ),
             ),
@@ -3978,9 +4474,7 @@ ButtonStyle mainButtonStyle() {
     backgroundColor: AppColors.brown,
     foregroundColor: Colors.white,
     padding: const EdgeInsets.symmetric(vertical: 15),
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(18),
-    ),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
     textStyle: const TextStyle(fontWeight: FontWeight.w900),
   );
 }
@@ -3991,9 +4485,7 @@ ButtonStyle socialButtonStyle() {
     backgroundColor: Colors.white,
     padding: const EdgeInsets.symmetric(vertical: 14),
     side: const BorderSide(color: AppColors.gold),
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(18),
-    ),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
     textStyle: const TextStyle(fontWeight: FontWeight.w900),
   );
 }
