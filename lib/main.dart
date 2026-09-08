@@ -2,11 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -14,12 +12,23 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 
 import 'firebase_options.dart';
+
+import 'core/constants/app_colors.dart';
+import 'models/community_submission.dart';
+import 'models/heritage_place.dart';
+import 'models/journal_entry.dart';
+import 'models/user_profile.dart';
+
 import 'services/ai_image_service.dart';
+import 'services/auth_service.dart';
+import 'services/community_submission_service.dart';
+import 'services/community_media_service.dart';
+import 'services/journal_service.dart';
 import 'services/language_service.dart';
+import 'services/user_service.dart';
 
 const double nearbyRadiusMeters = 10000.0;
 const String geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
@@ -66,307 +75,6 @@ class HeritageBotApp extends StatelessWidget {
       ),
       home: const SplashScreen(),
     );
-  }
-}
-
-class AppColors {
-  static const bg = Color(0xFFF8F2E9);
-  static const brown = Color(0xFF4A2C1A);
-  static const deepBrown = Color(0xFF2C160B);
-  static const clay = Color(0xFF9B5C2E);
-  static const gold = Color(0xFFE0AD62);
-  static const card = Colors.white;
-}
-
-class HeritagePlace {
-  final String id;
-  final String name;
-  final String location;
-  final double lat;
-  final double lng;
-  final String historicalFacts;
-  final String videoTitle;
-  final String? videoAsset;
-  final String wikipediaTitle;
-
-  const HeritagePlace({
-    required this.id,
-    required this.name,
-    required this.location,
-    required this.lat,
-    required this.lng,
-    required this.historicalFacts,
-    required this.videoTitle,
-    this.videoAsset,
-    required this.wikipediaTitle,
-  });
-
-  bool get hasVideo => videoAsset != null && videoAsset!.isNotEmpty;
-}
-
-const List<HeritagePlace> heritagePlaces = [
-  HeritagePlace(
-    id: 'uclm',
-    name: 'University of Cebu Lapu-Lapu and Mandaue',
-    location: 'A.C. Cortes Avenue, Mandaue City, Cebu',
-    lat: 10.32639,
-    lng: 123.95451,
-    videoTitle: 'UCLM School Heritage Video',
-    videoAsset: 'assets/videos/uclm.mp4',
-    wikipediaTitle: 'University of Cebu',
-    historicalFacts:
-        'The University of Cebu Lapu-Lapu and Mandaue, also known as UCLM, is an educational institution located along A.C. Cortes Avenue in Mandaue City. It is a meaningful place for students, alumni, families, and visitors because it connects education, personal growth, friendships, and school memories.',
-  ),
-  HeritagePlace(
-    id: 'magellans_cross',
-    name: 'Magellan’s Cross',
-    location: 'Cebu City',
-    lat: 10.2930,
-    lng: 123.9020,
-    videoTitle: 'Magellan’s Cross Heritage Video',
-    videoAsset: 'assets/videos/magellans_cross.mp4',
-    wikipediaTitle: "Magellan's Cross",
-    historicalFacts:
-        'Magellan’s Cross is one of Cebu’s most recognized landmarks. It is traditionally associated with the arrival of Christianity in the Philippines and is an important symbol of Cebuano history, faith, and tourism.',
-  ),
-  HeritagePlace(
-    id: 'fort_san_pedro',
-    name: 'Fort San Pedro',
-    location: 'Cebu City',
-    lat: 10.2923,
-    lng: 123.9058,
-    videoTitle: 'Fort San Pedro Historical Video',
-    videoAsset: 'assets/videos/fort_san_pedro.mp4',
-    wikipediaTitle: 'Fort San Pedro',
-    historicalFacts:
-        'Fort San Pedro is a Spanish colonial military defense structure in Cebu City. It served as a fortification during the colonial period and is now preserved as a heritage and tourism site.',
-  ),
-  HeritagePlace(
-    id: 'basilica_santo_nino',
-    name: 'Basilica Minore del Santo Niño',
-    location: 'Cebu City',
-    lat: 10.2939,
-    lng: 123.9013,
-    videoTitle: 'Santo Niño Heritage Video',
-    videoAsset: 'assets/videos/basilica_santo_nino.mp4',
-    wikipediaTitle: 'Basilica Minore del Santo Niño',
-    historicalFacts:
-        'The Basilica Minore del Santo Niño is one of the oldest Roman Catholic churches in the Philippines. It is closely connected to Cebuano devotion, the Santo Niño, and the Sinulog celebration.',
-  ),
-  HeritagePlace(
-    id: 'casa_gorordo',
-    name: 'Casa Gorordo Museum',
-    location: 'Cebu City',
-    lat: 10.3006,
-    lng: 123.8996,
-    videoTitle: 'Casa Gorordo Museum Video',
-    videoAsset: 'assets/videos/casa_gorordo.mp4',
-    wikipediaTitle: 'Casa Gorordo Museum',
-    historicalFacts:
-        'Casa Gorordo Museum presents the lifestyle of a Cebuano family during the Spanish colonial period. It preserves antique furniture, religious objects, religious images, household materials, and cultural items that show how old Cebuano families lived during the colonial era.',
-  ),
-];
-
-class JournalEntry {
-  final String id;
-  final String userId;
-  final String placeId;
-  final String placeName;
-  final String letter;
-  final List<String> imagePaths;
-  final List<String> videoPaths;
-  final String createdAt;
-  final int createdAtMillis;
-
-  const JournalEntry({
-    required this.id,
-    required this.userId,
-    required this.placeId,
-    required this.placeName,
-    required this.letter,
-    required this.imagePaths,
-    required this.videoPaths,
-    required this.createdAt,
-    required this.createdAtMillis,
-  });
-
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'userId': userId,
-      'placeId': placeId,
-      'placeName': placeName,
-      'letter': letter,
-      'imagePaths': imagePaths,
-      'videoPaths': videoPaths,
-      'createdAt': createdAt,
-      'createdAtMillis': createdAtMillis,
-    };
-  }
-
-  factory JournalEntry.fromMap(Map<String, dynamic> map) {
-    final createdAtRaw = map['createdAt'];
-    final millisRaw = map['createdAtMillis'];
-
-    int parsedMillis;
-
-    if (millisRaw is int) {
-      parsedMillis = millisRaw;
-    } else if (millisRaw is num) {
-      parsedMillis = millisRaw.toInt();
-    } else {
-      parsedMillis =
-          DateTime.tryParse(
-            createdAtRaw?.toString() ?? '',
-          )?.millisecondsSinceEpoch ??
-          0;
-    }
-
-    return JournalEntry(
-      id: map['id']?.toString() ?? '',
-      userId: map['userId']?.toString() ?? '',
-      placeId: map['placeId']?.toString() ?? '',
-      placeName: map['placeName']?.toString() ?? '',
-      letter: map['letter']?.toString() ?? '',
-      imagePaths: _safeStringList(map['imagePaths']),
-      videoPaths: _safeStringList(map['videoPaths']),
-      createdAt: createdAtRaw?.toString() ?? '',
-      createdAtMillis: parsedMillis,
-    );
-  }
-
-  static List<String> _safeStringList(dynamic value) {
-    if (value is List) return value.map((item) => item.toString()).toList();
-    if (value is String && value.trim().isNotEmpty) return [value.trim()];
-    return [];
-  }
-}
-
-class JournalService {
-  static const String _legacyLocalBaseKey = 'heritagebot_journal_entries';
-  static const String _migrationFlagBaseKey = 'heritagebot_firestore_migrated';
-
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-
-  String get _uid {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-
-    if (uid == null || uid.trim().isEmpty) {
-      throw FirebaseAuthException(
-        code: 'not-logged-in',
-        message: 'Please log in before using the journal.',
-      );
-    }
-
-    return uid;
-  }
-
-  CollectionReference<Map<String, dynamic>> _journalCollection() {
-    return _firestore
-        .collection('users')
-        .doc(_uid)
-        .collection('journal_entries');
-  }
-
-  Future<List<JournalEntry>> getEntries() async {
-    await _migrateLocalEntriesIfNeeded();
-
-    final snapshot = await _journalCollection()
-        .orderBy('createdAtMillis', descending: true)
-        .get();
-
-    return snapshot.docs.map((doc) {
-      final data = doc.data();
-      data['id'] ??= doc.id;
-      return JournalEntry.fromMap(data);
-    }).toList();
-  }
-
-  Future<List<JournalEntry>> getEntriesByPlace(String placeId) async {
-    await _migrateLocalEntriesIfNeeded();
-
-    final snapshot = await _journalCollection()
-        .where('placeId', isEqualTo: placeId)
-        .get();
-
-    final entries = snapshot.docs.map((doc) {
-      final data = doc.data();
-      data['id'] ??= doc.id;
-      return JournalEntry.fromMap(data);
-    }).toList();
-
-    entries.sort((a, b) => b.createdAtMillis.compareTo(a.createdAtMillis));
-    return entries;
-  }
-
-  Future<void> _migrateLocalEntriesIfNeeded() async {
-    final uid = _uid;
-    final prefs = await SharedPreferences.getInstance();
-    final migrationFlagKey = '${_migrationFlagBaseKey}_$uid';
-
-    if (prefs.getBool(migrationFlagKey) == true) return;
-
-    final legacyKey = '${_legacyLocalBaseKey}_$uid';
-    final rawList = prefs.getStringList(legacyKey) ?? [];
-
-    if (rawList.isEmpty) {
-      await prefs.setBool(migrationFlagKey, true);
-      return;
-    }
-
-    for (final raw in rawList) {
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is! Map) continue;
-
-        final oldEntry = JournalEntry.fromMap(
-          Map<String, dynamic>.from(decoded),
-        );
-
-        final savedImagePaths = <String>[
-          ...oldEntry.imagePaths.where((path) => path.trim().isNotEmpty),
-        ];
-        final savedVideoPaths = <String>[
-          ...oldEntry.videoPaths.where((path) => path.trim().isNotEmpty),
-        ];
-
-        final nowMillis = oldEntry.createdAtMillis == 0
-            ? DateTime.now().millisecondsSinceEpoch
-            : oldEntry.createdAtMillis;
-
-        final migratedEntry = JournalEntry(
-          id: oldEntry.id.isEmpty
-              ? DateTime.now().microsecondsSinceEpoch.toString()
-              : oldEntry.id,
-          userId: uid,
-          placeId: oldEntry.placeId,
-          placeName: oldEntry.placeName,
-          letter: oldEntry.letter,
-          imagePaths: savedImagePaths,
-          videoPaths: savedVideoPaths,
-          createdAt: oldEntry.createdAt.isEmpty
-              ? DateTime.fromMillisecondsSinceEpoch(nowMillis).toIso8601String()
-              : oldEntry.createdAt,
-          createdAtMillis: nowMillis,
-        );
-
-        await _journalCollection()
-            .doc(migratedEntry.id)
-            .set(migratedEntry.toMap(), SetOptions(merge: true));
-      } catch (_) {
-        // Skip broken local entries so the online database can still work.
-      }
-    }
-
-    await prefs.setBool(migrationFlagKey, true);
-  }
-
-  Future<void> addEntry(JournalEntry entry) async {
-    await _journalCollection().doc(entry.id).set(entry.toMap());
-  }
-
-  Future<void> deleteEntry(String id) async {
-    await _journalCollection().doc(id).delete();
   }
 }
 
@@ -1040,171 +748,6 @@ $memoryLine''';
   }
 }
 
-class AuthService {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-
-  Stream<User?> authChanges() => _auth.authStateChanges();
-
-  bool isPasswordUser(User user) {
-    return user.providerData.any((info) => info.providerId == 'password');
-  }
-
-  bool needsEmailVerification(User user) {
-    return isPasswordUser(user) && !user.emailVerified;
-  }
-
-  Future<void> loginWithEmail(String email, String password) async {
-    await _auth.signInWithEmailAndPassword(
-      email: email.trim(),
-      password: password,
-    );
-  }
-
-  Future<void> signupWithEmail(String email, String password) async {
-    final credential = await _auth.createUserWithEmailAndPassword(
-      email: email.trim(),
-      password: password,
-    );
-
-    await credential.user?.sendEmailVerification();
-  }
-
-  Future<void> sendPasswordResetEmail(String email) async {
-    final trimmedEmail = email.trim();
-
-    if (trimmedEmail.isEmpty) {
-      throw FirebaseAuthException(
-        code: 'empty-email',
-        message: 'Please enter your email address first.',
-      );
-    }
-
-    await _auth.sendPasswordResetEmail(email: trimmedEmail);
-  }
-
-  Future<void> changeCurrentUserPassword({
-    required String currentPassword,
-    required String newPassword,
-  }) async {
-    final user = _auth.currentUser;
-
-    if (user == null) {
-      throw FirebaseAuthException(
-        code: 'no-current-user',
-        message: 'No user is currently signed in.',
-      );
-    }
-
-    if (!isPasswordUser(user)) {
-      throw FirebaseAuthException(
-        code: 'not-password-user',
-        message:
-            'Password change is only available for email/password accounts. Google and Facebook accounts must change their password from their provider.',
-      );
-    }
-
-    final email = user.email;
-
-    if (email == null || email.trim().isEmpty) {
-      throw FirebaseAuthException(
-        code: 'missing-email',
-        message: 'This account has no email address.',
-      );
-    }
-
-    if (currentPassword.trim().isEmpty) {
-      throw FirebaseAuthException(
-        code: 'empty-current-password',
-        message: 'Please enter your current password.',
-      );
-    }
-
-    if (newPassword.trim().length < 6) {
-      throw FirebaseAuthException(
-        code: 'weak-password',
-        message: 'New password must be at least 6 characters.',
-      );
-    }
-
-    final credential = EmailAuthProvider.credential(
-      email: email.trim(),
-      password: currentPassword,
-    );
-
-    await user.reauthenticateWithCredential(credential);
-    await user.updatePassword(newPassword.trim());
-  }
-
-  Future<void> resendEmailVerification() async {
-    final user = _auth.currentUser;
-
-    if (user == null) {
-      throw Exception('No user is currently signed in.');
-    }
-
-    await user.sendEmailVerification();
-  }
-
-  Future<bool> reloadAndCheckVerified() async {
-    final user = _auth.currentUser;
-
-    if (user == null) {
-      return false;
-    }
-
-    await user.reload();
-
-    final refreshedUser = _auth.currentUser;
-    return refreshedUser?.emailVerified ?? false;
-  }
-
-  Future<void> signInWithGoogle() async {
-    try {
-      await GoogleSignIn.instance.signOut();
-
-      final GoogleSignInAccount googleUser = await GoogleSignIn.instance
-          .authenticate();
-
-      final GoogleSignInAuthentication googleAuth = googleUser.authentication;
-
-      if (googleAuth.idToken == null) {
-        throw Exception(
-          'Google login failed because no ID token was returned. Please check SHA-1/SHA-256 and google-services.json.',
-        );
-      }
-
-      final OAuthCredential credential = GoogleAuthProvider.credential(
-        idToken: googleAuth.idToken,
-      );
-
-      await _auth.signInWithCredential(credential);
-    } catch (e) {
-      throw Exception('Google login error: $e');
-    }
-  }
-
-  Future<void> signInWithFacebook() async {
-    final LoginResult result = await FacebookAuth.instance.login(
-      permissions: ['email', 'public_profile'],
-    );
-
-    if (result.status != LoginStatus.success || result.accessToken == null) {
-      throw Exception('Facebook login was cancelled or failed.');
-    }
-
-    final String token = result.accessToken!.tokenString;
-    final OAuthCredential credential = FacebookAuthProvider.credential(token);
-
-    await _auth.signInWithCredential(credential);
-  }
-
-  Future<void> logout() async {
-    await GoogleSignIn.instance.signOut();
-    await FacebookAuth.instance.logOut();
-    await _auth.signOut();
-  }
-}
-
 class LocationService {
   Future<void> ensurePermission() async {
     final enabled = await Geolocator.isLocationServiceEnabled();
@@ -1343,6 +886,7 @@ class AuthGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final authService = AuthService();
+    final userService = UserService();
 
     return StreamBuilder<User?>(
       stream: authService.authChanges(),
@@ -1361,7 +905,42 @@ class AuthGate extends StatelessWidget {
           return EmailVerificationScreen(email: user.email ?? '');
         }
 
-        return const MainShell();
+        return FutureBuilder<UserProfile?>(
+          future: userService.getUserProfile(user.uid),
+          builder: (context, profileSnapshot) {
+            if (profileSnapshot.connectionState == ConnectionState.waiting) {
+              return const LoadingScreen();
+            }
+
+            if (profileSnapshot.hasError) {
+              return RoleLoadErrorScreen(
+                message: profileSnapshot.error.toString(),
+              );
+            }
+
+            final profile = profileSnapshot.data;
+
+            if (profile == null || !UserRoles.isValidRole(profile.role)) {
+              return RoleSetupScreen(firebaseUser: user);
+            }
+
+            if (profile.accountStatus.toLowerCase() != 'active') {
+              return AccountStatusScreen(profile: profile);
+            }
+
+            switch (profile.role) {
+              case UserRoles.admin:
+                return AdminDashboardScreen(profile: profile);
+              case UserRoles.communityContributor:
+                return const MainShell(
+                  userRole: UserRoles.communityContributor,
+                );
+              case UserRoles.tourist:
+              default:
+                return const MainShell(userRole: UserRoles.tourist);
+            }
+          },
+        );
       },
     );
   }
@@ -1376,6 +955,1954 @@ class LoadingScreen extends StatelessWidget {
   }
 }
 
+class RoleLoadErrorScreen extends StatelessWidget {
+  final String message;
+
+  const RoleLoadErrorScreen({super.key, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Account Error')),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          const InfoCard(
+            icon: Icons.cloud_off_rounded,
+            title: 'Could Not Load Account Profile',
+            body:
+                'HeritageBot could not load your account role from Cloud Firestore. Check your internet connection and try again.',
+          ),
+          const SizedBox(height: 12),
+          Text(message, style: const TextStyle(color: Colors.black54)),
+          const SizedBox(height: 20),
+          ElevatedButton.icon(
+            onPressed: () async {
+              await AuthService().logout();
+            },
+            icon: const Icon(Icons.logout_rounded),
+            label: const Text('Return to Login'),
+            style: mainButtonStyle(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AccountStatusScreen extends StatelessWidget {
+  final UserProfile profile;
+
+  const AccountStatusScreen({super.key, required this.profile});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Account Status')),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          InfoCard(
+            icon: Icons.manage_accounts_rounded,
+            title: 'Account ${profile.accountStatus}',
+            body:
+                'This account is currently marked as "${profile.accountStatus}". Please contact the HeritageBot administrator if you believe this is incorrect.',
+          ),
+          const SizedBox(height: 20),
+          ElevatedButton.icon(
+            onPressed: () async {
+              await AuthService().logout();
+            },
+            icon: const Icon(Icons.logout_rounded),
+            label: const Text('Logout'),
+            style: mainButtonStyle(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class RoleSetupScreen extends StatefulWidget {
+  final User firebaseUser;
+
+  const RoleSetupScreen({super.key, required this.firebaseUser});
+
+  @override
+  State<RoleSetupScreen> createState() => _RoleSetupScreenState();
+}
+
+class _RoleSetupScreenState extends State<RoleSetupScreen> {
+  final UserService _userService = UserService();
+  late final TextEditingController fullNameController;
+
+  String selectedRole = UserRoles.tourist;
+  bool saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    fullNameController = TextEditingController(
+      text: widget.firebaseUser.displayName ?? '',
+    );
+  }
+
+  @override
+  void dispose() {
+    fullNameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> saveRole() async {
+    final fullName = fullNameController.text.trim();
+
+    if (fullName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter your full name.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    setState(() => saving = true);
+
+    try {
+      await _userService.savePublicProfile(
+        firebaseUser: widget.firebaseUser,
+        fullName: fullName,
+        role: selectedRole,
+        preferredLanguage: LanguageController.current.value.code,
+      );
+
+      if (!mounted) return;
+
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+        (_) => false,
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Choose Account Type')),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          const SectionTitle(
+            title: 'Complete Your HeritageBot Profile',
+            subtitle:
+                'Choose whether you will use HeritageBot as a Tourist or Community Contributor.',
+          ),
+          const SizedBox(height: 18),
+          TextField(
+            controller: fullNameController,
+            decoration: inputDecoration(
+              label: 'Full Name',
+              icon: Icons.person_rounded,
+            ),
+          ),
+          const SizedBox(height: 14),
+          DropdownButtonFormField<String>(
+            initialValue: selectedRole,
+            decoration: inputDecoration(
+              label: 'Account Type',
+              icon: Icons.badge_rounded,
+            ),
+            items: const [
+              DropdownMenuItem(
+                value: UserRoles.tourist,
+                child: Text('Tourist'),
+              ),
+              DropdownMenuItem(
+                value: UserRoles.communityContributor,
+                child: Text('Community Contributor'),
+              ),
+            ],
+            onChanged: saving
+                ? null
+                : (value) {
+                    if (value == null) return;
+                    setState(() => selectedRole = value);
+                  },
+          ),
+          const SizedBox(height: 12),
+          const InfoCard(
+            icon: Icons.admin_panel_settings_rounded,
+            title: 'Administrator Accounts',
+            body:
+                'Administrator accounts are not available through public registration. They are assigned only by the authorized system manager.',
+          ),
+          const SizedBox(height: 20),
+          ElevatedButton.icon(
+            onPressed: saving ? null : saveRole,
+            icon: saving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.save_rounded),
+            label: Text(saving ? 'Saving...' : 'Save Account Type'),
+            style: mainButtonStyle(),
+          ),
+          const SizedBox(height: 10),
+          TextButton.icon(
+            onPressed: saving
+                ? null
+                : () async {
+                    await AuthService().logout();
+                  },
+            icon: const Icon(Icons.logout_rounded),
+            label: const Text('Use Another Account'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ContributorDashboardScreen extends StatefulWidget {
+  const ContributorDashboardScreen({super.key});
+
+  @override
+  State<ContributorDashboardScreen> createState() =>
+      _ContributorDashboardScreenState();
+}
+
+class _ContributorDashboardScreenState
+    extends State<ContributorDashboardScreen> {
+  final CommunitySubmissionService _submissionService =
+      CommunitySubmissionService();
+  final CommunityMediaService _mediaService = CommunityMediaService();
+
+  late Future<List<CommunitySubmission>> _submissionsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSubmissions();
+  }
+
+  void _loadSubmissions() {
+    _submissionsFuture = _submissionService.getMySubmissions();
+  }
+
+  Future<void> _refresh() async {
+    setState(_loadSubmissions);
+    await _submissionsFuture;
+  }
+
+  Future<void> _openSubmitScreen() async {
+    final created = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const SubmitCommunityStoryScreen()),
+    );
+
+    if (created == true && mounted) {
+      await _refresh();
+    }
+  }
+
+  Future<void> _editSubmission(CommunitySubmission submission) async {
+    final updated = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EditCommunityStoryScreen(submission: submission),
+      ),
+    );
+
+    if (updated == true && mounted) {
+      await _refresh();
+    }
+  }
+
+  Future<void> _deleteSubmission(CommunitySubmission submission) async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete Submission?'),
+          content: Text(
+            'Delete "${submission.title}"? Only pending submissions can be deleted.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldDelete != true) return;
+
+    try {
+      await _mediaService.deleteMediaUrls([
+        ...submission.imageUrls,
+        ...submission.videoUrls,
+      ]);
+      await _submissionService.deletePendingSubmission(submission);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Submission deleted.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      await _refresh();
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Bad state: ', '')),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  IconData _statusIcon(String status) {
+    switch (status) {
+      case CommunitySubmissionStatus.approved:
+        return Icons.check_circle_rounded;
+      case CommunitySubmissionStatus.rejected:
+        return Icons.cancel_rounded;
+      case CommunitySubmissionStatus.pending:
+      default:
+        return Icons.schedule_rounded;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Community Contributor'),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _openSubmitScreen,
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('Submit Story'),
+      ),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: FutureBuilder<List<CommunitySubmission>>(
+          future: _submissionsFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: [
+                  SizedBox(height: 220),
+                  Center(child: CircularProgressIndicator()),
+                ],
+              );
+            }
+
+            if (snapshot.hasError) {
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(18),
+                children: [
+                  const InfoCard(
+                    icon: Icons.cloud_off_rounded,
+                    title: 'Could Not Load Submissions',
+                    body:
+                        'HeritageBot could not load your community story submissions from Cloud Firestore.',
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    snapshot.error.toString(),
+                    style: const TextStyle(color: Colors.black54),
+                  ),
+                ],
+              );
+            }
+
+            final submissions = snapshot.data ?? const [];
+
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 100),
+              children: [
+                const SectionTitle(
+                  title: 'Community Contributions',
+                  subtitle:
+                      'Submit local heritage stories for administrator review and track whether they are Pending, Approved, or Rejected.',
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _openSubmitScreen,
+                    icon: const Icon(Icons.history_edu_rounded),
+                    label: const Text('Submit Heritage Story'),
+                    style: mainButtonStyle(),
+                  ),
+                ),
+                const SizedBox(height: 22),
+                const SectionTitle(
+                  title: 'My Submissions',
+                  subtitle:
+                      'Administrator feedback will appear here after review.',
+                ),
+                const SizedBox(height: 12),
+                if (submissions.isEmpty)
+                  const InfoCard(
+                    icon: Icons.inbox_rounded,
+                    title: 'No Submissions Yet',
+                    body:
+                        'Tap Submit Heritage Story to send your first local heritage contribution.',
+                  )
+                else
+                  ...submissions.map(
+                    (submission) => Card(
+                      margin: const EdgeInsets.only(bottom: 14),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  _statusIcon(submission.status),
+                                  color: AppColors.brown,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        submission.title,
+                                        style: const TextStyle(
+                                          fontSize: 17,
+                                          fontWeight: FontWeight.w900,
+                                          color: AppColors.deepBrown,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        submission.heritagePlaceName,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.black54,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.gold.withOpacity(0.18),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    CommunitySubmissionStatus.label(
+                                      submission.status,
+                                    ),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w900,
+                                      color: AppColors.brown,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              submission.story,
+                              maxLines: 5,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(height: 1.45),
+                            ),
+                            if (submission.imageUrls.isNotEmpty ||
+                                submission.videoUrls.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 8,
+                                children: [
+                                  if (submission.imageUrls.isNotEmpty)
+                                    _AttachmentCount(
+                                      icon: Icons.photo_library_rounded,
+                                      label:
+                                          '${submission.imageUrls.length} photo${submission.imageUrls.length == 1 ? '' : 's'}',
+                                    ),
+                                  if (submission.videoUrls.isNotEmpty)
+                                    _AttachmentCount(
+                                      icon: Icons.video_library_rounded,
+                                      label:
+                                          '${submission.videoUrls.length} video${submission.videoUrls.length == 1 ? '' : 's'}',
+                                    ),
+                                ],
+                              ),
+                            ],
+                            if (submission.adminFeedback.trim().isNotEmpty) ...[
+                              const SizedBox(height: 14),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: AppColors.bg,
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Text(
+                                  'Admin Feedback: ${submission.adminFeedback}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            if (submission.status ==
+                                CommunitySubmissionStatus.pending) ...[
+                              const SizedBox(height: 10),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  TextButton.icon(
+                                    onPressed: () =>
+                                        _editSubmission(submission),
+                                    icon: const Icon(Icons.edit_rounded),
+                                    label: const Text('Edit'),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  TextButton.icon(
+                                    onPressed: () =>
+                                        _deleteSubmission(submission),
+                                    icon: const Icon(
+                                      Icons.delete_outline_rounded,
+                                    ),
+                                    label: const Text('Delete'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class EditCommunityStoryScreen extends StatefulWidget {
+  final CommunitySubmission submission;
+
+  const EditCommunityStoryScreen({super.key, required this.submission});
+
+  @override
+  State<EditCommunityStoryScreen> createState() =>
+      _EditCommunityStoryScreenState();
+}
+
+class _EditCommunityStoryScreenState extends State<EditCommunityStoryScreen> {
+  final CommunitySubmissionService _submissionService =
+      CommunitySubmissionService();
+
+  late final TextEditingController titleController;
+  late final TextEditingController storyController;
+
+  String? selectedPlaceId;
+  bool saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    titleController = TextEditingController(text: widget.submission.title);
+    storyController = TextEditingController(text: widget.submission.story);
+
+    final hasExistingPlace = heritagePlaces.any(
+      (place) => place.id == widget.submission.heritagePlaceId,
+    );
+
+    selectedPlaceId = hasExistingPlace
+        ? widget.submission.heritagePlaceId
+        : (heritagePlaces.isNotEmpty ? heritagePlaces.first.id : null);
+  }
+
+  @override
+  void dispose() {
+    titleController.dispose();
+    storyController.dispose();
+    super.dispose();
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+      );
+  }
+
+  Future<void> _saveChanges() async {
+    FocusScope.of(context).unfocus();
+
+    if (widget.submission.status != CommunitySubmissionStatus.pending) {
+      _showMessage('Only pending submissions can be edited.');
+      return;
+    }
+
+    final title = titleController.text.trim();
+    final story = storyController.text.trim();
+
+    if (selectedPlaceId == null) {
+      _showMessage('Please choose a heritage place.');
+      return;
+    }
+
+    if (title.length < 3) {
+      _showMessage('Please enter a story title.');
+      return;
+    }
+
+    if (story.length < 20) {
+      _showMessage(
+        'Please write a more complete heritage story before saving.',
+      );
+      return;
+    }
+
+    final place = heritagePlaces.firstWhere(
+      (item) => item.id == selectedPlaceId,
+    );
+
+    setState(() => saving = true);
+
+    try {
+      await _submissionService.updatePendingSubmission(
+        submission: widget.submission,
+        heritagePlaceId: place.id,
+        heritagePlaceName: place.name,
+        title: title,
+        story: story,
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Pending submission updated.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+
+      _showMessage(
+        e
+            .toString()
+            .replaceFirst('Exception: ', '')
+            .replaceFirst('Bad state: ', '')
+            .replaceFirst('Invalid argument(s): ', ''),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => saving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final submission = widget.submission;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Edit Submission')),
+      body: ListView(
+        padding: const EdgeInsets.all(18),
+        children: [
+          const SectionTitle(
+            title: 'Edit Pending Heritage Story',
+            subtitle:
+                'You can change the heritage place, title, and story while the submission is still Pending.',
+          ),
+          const SizedBox(height: 18),
+          DropdownButtonFormField<String>(
+            initialValue: selectedPlaceId,
+            isExpanded: true,
+            decoration: inputDecoration(
+              label: 'Heritage Place',
+              icon: Icons.place_rounded,
+            ),
+            items: heritagePlaces
+                .map(
+                  (place) => DropdownMenuItem<String>(
+                    value: place.id,
+                    child: Text(place.name, overflow: TextOverflow.ellipsis),
+                  ),
+                )
+                .toList(),
+            onChanged: saving
+                ? null
+                : (value) {
+                    setState(() => selectedPlaceId = value);
+                  },
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: titleController,
+            enabled: !saving,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: inputDecoration(
+              label: 'Story Title',
+              icon: Icons.title_rounded,
+            ),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: storyController,
+            enabled: !saving,
+            minLines: 8,
+            maxLines: 14,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: inputDecoration(
+              label: 'Heritage Story',
+              icon: Icons.history_edu_rounded,
+            ).copyWith(alignLabelWithHint: true),
+          ),
+          if (submission.imageUrls.isNotEmpty ||
+              submission.videoUrls.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            InfoCard(
+              icon: Icons.perm_media_rounded,
+              title: 'Existing Media',
+              body:
+                  '${submission.imageUrls.length} photo${submission.imageUrls.length == 1 ? '' : 's'} and '
+                  '${submission.videoUrls.length} video${submission.videoUrls.length == 1 ? '' : 's'} remain attached to this submission.',
+            ),
+          ],
+          const SizedBox(height: 14),
+          const InfoCard(
+            icon: Icons.schedule_rounded,
+            title: 'Pending Only',
+            body:
+                'After an Administrator approves or rejects the contribution, this Edit option is no longer available.',
+          ),
+          const SizedBox(height: 18),
+          ElevatedButton.icon(
+            onPressed: saving ? null : _saveChanges,
+            icon: saving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.save_rounded),
+            label: Text(saving ? 'Saving...' : 'Save Changes'),
+            style: mainButtonStyle(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AttachmentCount extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _AttachmentCount({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18, color: AppColors.brown),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: const TextStyle(
+            fontWeight: FontWeight.w800,
+            color: Colors.black54,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class SubmitCommunityStoryScreen extends StatefulWidget {
+  const SubmitCommunityStoryScreen({super.key});
+
+  @override
+  State<SubmitCommunityStoryScreen> createState() =>
+      _SubmitCommunityStoryScreenState();
+}
+
+class _SubmitCommunityStoryScreenState
+    extends State<SubmitCommunityStoryScreen> {
+  final CommunitySubmissionService _submissionService =
+      CommunitySubmissionService();
+  final CommunityMediaService _mediaService = CommunityMediaService();
+  final UserService _userService = UserService();
+  final ImagePicker _imagePicker = ImagePicker();
+
+  final TextEditingController titleController = TextEditingController();
+  final TextEditingController storyController = TextEditingController();
+
+  final List<XFile> selectedImages = [];
+  final List<XFile> selectedVideos = [];
+
+  String? selectedPlaceId;
+  String contributorName = '';
+  bool loadingProfile = true;
+  bool submitting = false;
+  String uploadStatus = '';
+
+  @override
+  void initState() {
+    super.initState();
+
+    if (heritagePlaces.isNotEmpty) {
+      selectedPlaceId = heritagePlaces.first.id;
+    }
+
+    _loadContributorName();
+  }
+
+  Future<void> _loadContributorName() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+
+      if (user != null) {
+        final profile = await _userService.getUserProfile(user.uid);
+
+        contributorName = profile?.fullName.trim().isNotEmpty == true
+            ? profile!.fullName.trim()
+            : (user.displayName?.trim() ?? '');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => loadingProfile = false);
+      }
+    }
+  }
+
+  Future<void> _pickPhotos() async {
+    if (submitting) return;
+
+    final remaining = CommunityMediaService.maxImages - selectedImages.length;
+
+    if (remaining <= 0) {
+      _showMessage(
+        'You can attach up to ${CommunityMediaService.maxImages} photos.',
+      );
+      return;
+    }
+
+    try {
+      final picked = await _imagePicker.pickMultiImage(imageQuality: 88);
+
+      if (picked.isEmpty || !mounted) return;
+
+      final accepted = picked.take(remaining).toList();
+
+      setState(() {
+        selectedImages.addAll(accepted);
+      });
+
+      if (picked.length > remaining) {
+        _showMessage(
+          'Only $remaining more photo${remaining == 1 ? '' : 's'} could be added.',
+        );
+      }
+    } catch (e) {
+      _showMessage('Could not select photos: $e');
+    }
+  }
+
+  Future<void> _pickVideo() async {
+    if (submitting) return;
+
+    if (selectedVideos.length >= CommunityMediaService.maxVideos) {
+      _showMessage(
+        'You can attach up to ${CommunityMediaService.maxVideos} videos.',
+      );
+      return;
+    }
+
+    try {
+      final picked = await _imagePicker.pickVideo(
+        source: ImageSource.gallery,
+        maxDuration: const Duration(minutes: 5),
+      );
+
+      if (picked == null || !mounted) return;
+
+      setState(() {
+        selectedVideos.add(picked);
+      });
+    } catch (e) {
+      _showMessage('Could not select video: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    titleController.dispose();
+    storyController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    FocusScope.of(context).unfocus();
+
+    final title = titleController.text.trim();
+    final story = storyController.text.trim();
+
+    if (selectedPlaceId == null) {
+      _showMessage('Please choose a heritage place.');
+      return;
+    }
+
+    if (title.length < 3) {
+      _showMessage('Please enter a story title.');
+      return;
+    }
+
+    if (story.length < 20) {
+      _showMessage(
+        'Please write a more complete heritage story before submitting.',
+      );
+      return;
+    }
+
+    final place = heritagePlaces.firstWhere(
+      (item) => item.id == selectedPlaceId,
+    );
+
+    final submissionId = _submissionService.createSubmissionId();
+
+    setState(() {
+      submitting = true;
+      uploadStatus = selectedImages.isEmpty && selectedVideos.isEmpty
+          ? 'Saving submission...'
+          : 'Preparing media upload...';
+    });
+
+    var imageUrls = <String>[];
+    var videoUrls = <String>[];
+
+    try {
+      if (selectedImages.isNotEmpty) {
+        setState(() => uploadStatus = 'Uploading photos...');
+
+        imageUrls = await _mediaService.uploadImages(
+          submissionId: submissionId,
+          images: selectedImages,
+          onProgress: (uploaded, total) {
+            if (!mounted) return;
+            setState(
+              () => uploadStatus = 'Uploading photos $uploaded of $total...',
+            );
+          },
+        );
+      }
+
+      if (selectedVideos.isNotEmpty) {
+        setState(() => uploadStatus = 'Uploading videos...');
+
+        videoUrls = await _mediaService.uploadVideos(
+          submissionId: submissionId,
+          videos: selectedVideos,
+          onProgress: (uploaded, total) {
+            if (!mounted) return;
+            setState(
+              () => uploadStatus = 'Uploading videos $uploaded of $total...',
+            );
+          },
+        );
+      }
+
+      if (mounted) {
+        setState(() => uploadStatus = 'Saving submission...');
+      }
+
+      await _submissionService.submitStory(
+        submissionId: submissionId,
+        contributorName: contributorName,
+        heritagePlaceId: place.id,
+        heritagePlaceName: place.name,
+        title: title,
+        story: story,
+        imageUrls: imageUrls,
+        videoUrls: videoUrls,
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Heritage story submitted for administrator review.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      Navigator.pop(context, true);
+    } catch (e) {
+      await _mediaService.deleteMediaUrls([...imageUrls, ...videoUrls]);
+
+      if (!mounted) return;
+
+      _showMessage(
+        e
+            .toString()
+            .replaceFirst('Exception: ', '')
+            .replaceFirst('Bad state: ', ''),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          submitting = false;
+          uploadStatus = '';
+        });
+      }
+    }
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+      );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Submit Heritage Story')),
+      body: ListView(
+        padding: const EdgeInsets.all(18),
+        children: [
+          const SectionTitle(
+            title: 'Community Heritage Story',
+            subtitle:
+                'Share a local story or cultural memory with optional photos and videos. It will remain Pending until reviewed by the HeritageBot Administrator.',
+          ),
+          const SizedBox(height: 18),
+          DropdownButtonFormField<String>(
+            initialValue: selectedPlaceId,
+            isExpanded: true,
+            decoration: inputDecoration(
+              label: 'Heritage Place',
+              icon: Icons.place_rounded,
+            ),
+            items: heritagePlaces
+                .map(
+                  (place) => DropdownMenuItem<String>(
+                    value: place.id,
+                    child: Text(place.name, overflow: TextOverflow.ellipsis),
+                  ),
+                )
+                .toList(),
+            onChanged: submitting
+                ? null
+                : (value) {
+                    setState(() => selectedPlaceId = value);
+                  },
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: titleController,
+            enabled: !submitting,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: inputDecoration(
+              label: 'Story Title',
+              icon: Icons.title_rounded,
+            ),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: storyController,
+            enabled: !submitting,
+            minLines: 8,
+            maxLines: 14,
+            textCapitalization: TextCapitalization.sentences,
+            decoration:
+                inputDecoration(
+                  label: 'Heritage Story',
+                  icon: Icons.history_edu_rounded,
+                ).copyWith(
+                  alignLabelWithHint: true,
+                  hintText:
+                      'Write the local story, cultural memory, oral history, or heritage information you want to contribute.',
+                ),
+          ),
+          const SizedBox(height: 18),
+          const SectionTitle(
+            title: 'Supporting Media',
+            subtitle:
+                'Optional: attach up to 5 photos and 2 videos. Photos must be 10 MB or smaller and videos 60 MB or smaller.',
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: submitting ? null : _pickPhotos,
+                  icon: const Icon(Icons.add_photo_alternate_rounded),
+                  label: Text(
+                    'Photos (${selectedImages.length}/${CommunityMediaService.maxImages})',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: submitting ? null : _pickVideo,
+                  icon: const Icon(Icons.video_library_rounded),
+                  label: Text(
+                    'Videos (${selectedVideos.length}/${CommunityMediaService.maxVideos})',
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (selectedImages.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            SizedBox(
+              height: 104,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: selectedImages.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 10),
+                itemBuilder: (context, index) {
+                  final image = selectedImages[index];
+
+                  return Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: Image.file(
+                          File(image.path),
+                          width: 104,
+                          height: 104,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: Material(
+                          color: Colors.black54,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: submitting
+                                ? null
+                                : () {
+                                    setState(
+                                      () => selectedImages.removeAt(index),
+                                    );
+                                  },
+                            child: const Padding(
+                              padding: EdgeInsets.all(5),
+                              child: Icon(
+                                Icons.close_rounded,
+                                size: 18,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+          if (selectedVideos.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            ...List.generate(
+              selectedVideos.length,
+              (index) => Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  leading: const Icon(
+                    Icons.video_file_rounded,
+                    color: AppColors.brown,
+                  ),
+                  title: Text(
+                    selectedVideos[index].name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: IconButton(
+                    tooltip: 'Remove video',
+                    onPressed: submitting
+                        ? null
+                        : () {
+                            setState(() => selectedVideos.removeAt(index));
+                          },
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          const InfoCard(
+            icon: Icons.verified_user_rounded,
+            title: 'Administrator Review',
+            body:
+                'Your story and attached media will be saved with Pending status. They will not become approved community content until reviewed by an Administrator.',
+          ),
+          if (submitting && uploadStatus.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            const LinearProgressIndicator(),
+            const SizedBox(height: 8),
+            Text(
+              uploadStatus,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                color: AppColors.brown,
+              ),
+            ),
+          ],
+          const SizedBox(height: 18),
+          ElevatedButton.icon(
+            onPressed: submitting || loadingProfile ? null : _submit,
+            icon: submitting
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.send_rounded),
+            label: Text(
+              submitting ? 'Uploading & Submitting...' : 'Submit for Review',
+            ),
+            style: mainButtonStyle(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AdminDashboardScreen extends StatefulWidget {
+  final UserProfile profile;
+
+  const AdminDashboardScreen({super.key, required this.profile});
+
+  @override
+  State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
+}
+
+class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+  final CommunitySubmissionService _submissionService =
+      CommunitySubmissionService();
+
+  late Future<List<CommunitySubmission>> _submissionsFuture;
+
+  String selectedFilter = 'all';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSubmissions();
+  }
+
+  void _loadSubmissions() {
+    _submissionsFuture = _submissionService.getAllSubmissions();
+  }
+
+  Future<void> _refresh() async {
+    setState(_loadSubmissions);
+    await _submissionsFuture;
+  }
+
+  Future<void> _openSubmission(CommunitySubmission submission) async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AdminReviewSubmissionScreen(submission: submission),
+      ),
+    );
+
+    if (changed == true && mounted) {
+      await _refresh();
+    }
+  }
+
+  List<CommunitySubmission> _filtered(List<CommunitySubmission> submissions) {
+    if (selectedFilter == 'all') {
+      return submissions;
+    }
+
+    return submissions
+        .where((submission) => submission.status == selectedFilter)
+        .toList();
+  }
+
+  int _countStatus(List<CommunitySubmission> submissions, String status) {
+    return submissions
+        .where((submission) => submission.status == status)
+        .length;
+  }
+
+  IconData _statusIcon(String status) {
+    switch (status) {
+      case CommunitySubmissionStatus.approved:
+        return Icons.check_circle_rounded;
+      case CommunitySubmissionStatus.rejected:
+        return Icons.cancel_rounded;
+      case CommunitySubmissionStatus.pending:
+      default:
+        return Icons.schedule_rounded;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final displayName = widget.profile.fullName.isEmpty
+        ? 'Administrator'
+        : widget.profile.fullName;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('HeritageBot Admin'),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+          IconButton(
+            tooltip: 'Logout',
+            onPressed: () async {
+              await AuthService().logout();
+            },
+            icon: const Icon(Icons.logout_rounded),
+          ),
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: FutureBuilder<List<CommunitySubmission>>(
+          future: _submissionsFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: const [
+                  SizedBox(height: 240),
+                  Center(child: CircularProgressIndicator()),
+                ],
+              );
+            }
+
+            if (snapshot.hasError) {
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(18),
+                children: [
+                  const InfoCard(
+                    icon: Icons.cloud_off_rounded,
+                    title: 'Could Not Load Contributions',
+                    body:
+                        'HeritageBot could not load community submissions from Cloud Firestore.',
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    snapshot.error.toString(),
+                    style: const TextStyle(color: Colors.black54),
+                  ),
+                ],
+              );
+            }
+
+            final submissions = snapshot.data ?? const [];
+            final filteredSubmissions = _filtered(submissions);
+
+            final pendingCount = _countStatus(
+              submissions,
+              CommunitySubmissionStatus.pending,
+            );
+            final approvedCount = _countStatus(
+              submissions,
+              CommunitySubmissionStatus.approved,
+            );
+            final rejectedCount = _countStatus(
+              submissions,
+              CommunitySubmissionStatus.rejected,
+            );
+
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 40),
+              children: [
+                SectionTitle(
+                  title: 'Welcome, $displayName',
+                  subtitle:
+                      'Review community-contributed heritage stories and provide approval, rejection, and feedback.',
+                ),
+                const SizedBox(height: 18),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    _AdminSummaryChip(
+                      label: 'Total',
+                      count: submissions.length,
+                      icon: Icons.inbox_rounded,
+                    ),
+                    _AdminSummaryChip(
+                      label: 'Pending',
+                      count: pendingCount,
+                      icon: Icons.schedule_rounded,
+                    ),
+                    _AdminSummaryChip(
+                      label: 'Approved',
+                      count: approvedCount,
+                      icon: Icons.check_circle_rounded,
+                    ),
+                    _AdminSummaryChip(
+                      label: 'Rejected',
+                      count: rejectedCount,
+                      icon: Icons.cancel_rounded,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 22),
+                const SectionTitle(
+                  title: 'Review Community Contributions',
+                  subtitle:
+                      'Tap a submission to read the full story, approve or reject it, and add administrator feedback.',
+                ),
+                const SizedBox(height: 12),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      ChoiceChip(
+                        label: const Text('All'),
+                        selected: selectedFilter == 'all',
+                        onSelected: (_) {
+                          setState(() => selectedFilter = 'all');
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      ChoiceChip(
+                        label: const Text('Pending'),
+                        selected:
+                            selectedFilter == CommunitySubmissionStatus.pending,
+                        onSelected: (_) {
+                          setState(
+                            () => selectedFilter =
+                                CommunitySubmissionStatus.pending,
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      ChoiceChip(
+                        label: const Text('Approved'),
+                        selected:
+                            selectedFilter ==
+                            CommunitySubmissionStatus.approved,
+                        onSelected: (_) {
+                          setState(
+                            () => selectedFilter =
+                                CommunitySubmissionStatus.approved,
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      ChoiceChip(
+                        label: const Text('Rejected'),
+                        selected:
+                            selectedFilter ==
+                            CommunitySubmissionStatus.rejected,
+                        onSelected: (_) {
+                          setState(
+                            () => selectedFilter =
+                                CommunitySubmissionStatus.rejected,
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                if (filteredSubmissions.isEmpty)
+                  const InfoCard(
+                    icon: Icons.inbox_rounded,
+                    title: 'No Contributions Found',
+                    body:
+                        'There are no community submissions in the selected status.',
+                  )
+                else
+                  ...filteredSubmissions.map(
+                    (submission) => Card(
+                      margin: const EdgeInsets.only(bottom: 14),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () => _openSubmission(submission),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    _statusIcon(submission.status),
+                                    color: AppColors.brown,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          submission.title,
+                                          style: const TextStyle(
+                                            fontSize: 17,
+                                            fontWeight: FontWeight.w900,
+                                            color: AppColors.deepBrown,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          submission.heritagePlaceName,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            color: Colors.black54,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(
+                                    Icons.chevron_right_rounded,
+                                    color: Colors.black45,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'Contributor: ${submission.contributorName}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              if (submission.contributorEmail.isNotEmpty)
+                                Text(
+                                  submission.contributorEmail,
+                                  style: const TextStyle(color: Colors.black54),
+                                ),
+                              const SizedBox(height: 10),
+                              Text(
+                                submission.story,
+                                maxLines: 4,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(height: 1.45),
+                              ),
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.gold.withOpacity(0.18),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  CommunitySubmissionStatus.label(
+                                    submission.status,
+                                  ),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w900,
+                                    color: AppColors.brown,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                const InfoCard(
+                  icon: Icons.people_alt_rounded,
+                  title: 'Manage Users',
+                  body:
+                      'User management will be connected in the next administrator development stage.',
+                ),
+                const InfoCard(
+                  icon: Icons.location_city_rounded,
+                  title: 'Manage Heritage Sites',
+                  body:
+                      'Heritage site creation, editing, deletion, and media management will be connected in a later stage.',
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _AdminSummaryChip extends StatelessWidget {
+  final String label;
+  final int count;
+  final IconData icon;
+
+  const _AdminSummaryChip({
+    required this.label,
+    required this.count,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.gold.withOpacity(0.45)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: AppColors.brown),
+          const SizedBox(width: 8),
+          Text(
+            '$label: $count',
+            style: const TextStyle(
+              fontWeight: FontWeight.w900,
+              color: AppColors.deepBrown,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AdminReviewSubmissionScreen extends StatefulWidget {
+  final CommunitySubmission submission;
+
+  const AdminReviewSubmissionScreen({super.key, required this.submission});
+
+  @override
+  State<AdminReviewSubmissionScreen> createState() =>
+      _AdminReviewSubmissionScreenState();
+}
+
+class _AdminReviewSubmissionScreenState
+    extends State<AdminReviewSubmissionScreen> {
+  final CommunitySubmissionService _submissionService =
+      CommunitySubmissionService();
+
+  late final TextEditingController feedbackController;
+
+  bool saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    feedbackController = TextEditingController(
+      text: widget.submission.adminFeedback,
+    );
+  }
+
+  @override
+  void dispose() {
+    feedbackController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _review(String status) async {
+    final feedback = feedbackController.text.trim();
+
+    if (status == CommunitySubmissionStatus.rejected && feedback.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Please provide feedback explaining why the submission was rejected.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    setState(() => saving = true);
+
+    try {
+      await _submissionService.reviewSubmission(
+        submissionId: widget.submission.id,
+        status: status,
+        adminFeedback: feedback,
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            status == CommunitySubmissionStatus.approved
+                ? 'Community story approved.'
+                : 'Community story rejected.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => saving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final submission = widget.submission;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Review Contribution')),
+      body: ListView(
+        padding: const EdgeInsets.all(18),
+        children: [
+          SectionTitle(
+            title: submission.title,
+            subtitle: submission.heritagePlaceName,
+          ),
+          const SizedBox(height: 16),
+          InfoCard(
+            icon: Icons.person_rounded,
+            title: 'Contributor',
+            body: submission.contributorEmail.isEmpty
+                ? submission.contributorName
+                : '${submission.contributorName}\n${submission.contributorEmail}',
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Text(
+              submission.story,
+              style: const TextStyle(
+                fontSize: 16,
+                height: 1.55,
+                color: AppColors.deepBrown,
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          InfoCard(
+            icon: Icons.info_rounded,
+            title: 'Current Status',
+            body: CommunitySubmissionStatus.label(submission.status),
+          ),
+          if (submission.imageUrls.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            const SectionTitle(
+              title: 'Attached Photos',
+              subtitle: 'Photos submitted by the Community Contributor.',
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 150,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: submission.imageUrls.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 10),
+                itemBuilder: (context, index) {
+                  final url = submission.imageUrls[index];
+
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Image.network(
+                      url,
+                      width: 190,
+                      height: 150,
+                      fit: BoxFit.cover,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+
+                        return const SizedBox(
+                          width: 190,
+                          height: 150,
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      },
+                      errorBuilder: (_, __, ___) {
+                        return const SizedBox(
+                          width: 190,
+                          height: 150,
+                          child: Center(
+                            child: Icon(Icons.broken_image_rounded),
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+          if (submission.videoUrls.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            const SectionTitle(
+              title: 'Attached Videos',
+              subtitle: 'Videos submitted by the Community Contributor.',
+            ),
+            const SizedBox(height: 10),
+            ...submission.videoUrls.asMap().entries.map(
+              (entry) => LocalJournalVideoPlayer(
+                filePath: entry.value,
+                title: 'Community Video ${entry.key + 1}',
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          TextField(
+            controller: feedbackController,
+            minLines: 4,
+            maxLines: 7,
+            decoration:
+                inputDecoration(
+                  label: 'Administrator Feedback',
+                  icon: Icons.rate_review_rounded,
+                ).copyWith(
+                  alignLabelWithHint: true,
+                  hintText:
+                      'Add feedback for the contributor. Feedback is required when rejecting.',
+                ),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: saving
+                      ? null
+                      : () => _review(CommunitySubmissionStatus.rejected),
+                  icon: const Icon(Icons.cancel_rounded),
+                  label: const Text('Reject'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: saving
+                      ? null
+                      : () => _review(CommunitySubmissionStatus.approved),
+                  icon: saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.check_circle_rounded),
+                  label: Text(saving ? 'Saving...' : 'Approve'),
+                  style: mainButtonStyle(),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class LoginSignupScreen extends StatefulWidget {
   const LoginSignupScreen({super.key});
 
@@ -1385,8 +2912,10 @@ class LoginSignupScreen extends StatefulWidget {
 
 class _LoginSignupScreenState extends State<LoginSignupScreen> {
   final AuthService _auth = AuthService();
+  final UserService _userService = UserService();
   final LanguageService _languageService = LanguageService();
 
+  final TextEditingController fullNameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
   final TextEditingController confirmPasswordController =
@@ -1397,6 +2926,7 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
   bool hidePassword = true;
   bool hideConfirmPassword = true;
   String selectedLanguageCode = LanguageController.current.value.code;
+  String selectedRole = UserRoles.tourist;
 
   String t(String key) => appText(selectedLanguageCode, key);
 
@@ -1407,9 +2937,17 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
   }
 
   Future<void> submitEmail() async {
+    FocusScope.of(context).unfocus();
+
+    final fullName = fullNameController.text.trim();
     final email = emailController.text.trim();
     final password = passwordController.text;
     final confirmPassword = confirmPasswordController.text;
+
+    if (isSignup && fullName.isEmpty) {
+      showMessage('Please enter your full name.');
+      return;
+    }
 
     if (email.isEmpty || password.isEmpty) {
       showMessage(t('enterEmailPassword'));
@@ -1435,7 +2973,26 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
 
     try {
       if (isSignup) {
-        await _auth.signupWithEmail(email, password);
+        final credential = await _auth.signupWithEmail(
+          email,
+          password,
+          displayName: fullName,
+        );
+
+        final user = credential.user;
+        if (user == null) {
+          throw Exception(
+            'Account was created but the user could not be loaded.',
+          );
+        }
+
+        await _userService.savePublicProfile(
+          firebaseUser: user,
+          fullName: fullName,
+          role: selectedRole,
+          preferredLanguage: selectedLanguageCode,
+        );
+
         await _languageService.savePreferredLanguageCode(selectedLanguageCode);
 
         if (!mounted) return;
@@ -1507,6 +3064,18 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
 
     try {
       await _auth.signInWithGoogle();
+
+      final user = FirebaseAuth.instance.currentUser;
+
+      if (user != null && isSignup) {
+        await _userService.savePublicProfile(
+          firebaseUser: user,
+          fullName: fullNameController.text.trim(),
+          role: selectedRole,
+          preferredLanguage: selectedLanguageCode,
+        );
+        await _languageService.savePreferredLanguageCode(selectedLanguageCode);
+      }
     } catch (e) {
       showMessage(e.toString());
     }
@@ -1519,6 +3088,18 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
 
     try {
       await _auth.signInWithFacebook();
+
+      final user = FirebaseAuth.instance.currentUser;
+
+      if (user != null && isSignup) {
+        await _userService.savePublicProfile(
+          firebaseUser: user,
+          fullName: fullNameController.text.trim(),
+          role: selectedRole,
+          preferredLanguage: selectedLanguageCode,
+        );
+        await _languageService.savePreferredLanguageCode(selectedLanguageCode);
+      }
     } catch (e) {
       showMessage(e.toString());
     }
@@ -1653,7 +3234,7 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
         ],
       ),
       child: DropdownButtonFormField<String>(
-        value: selectedLanguageCode,
+        initialValue: selectedLanguageCode,
         isExpanded: true,
         icon: const Icon(Icons.keyboard_arrow_down_rounded),
         decoration: InputDecoration(
@@ -1706,8 +3287,56 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
     );
   }
 
+  Widget roleSelector() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 14,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: DropdownButtonFormField<String>(
+        initialValue: selectedRole,
+        isExpanded: true,
+        decoration: InputDecoration(
+          prefixIcon: const Icon(Icons.badge_rounded, color: AppColors.brown),
+          labelText: 'Account Type',
+          labelStyle: const TextStyle(
+            color: Colors.black54,
+            fontWeight: FontWeight.w700,
+          ),
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(22),
+            borderSide: BorderSide.none,
+          ),
+        ),
+        items: const [
+          DropdownMenuItem(value: UserRoles.tourist, child: Text('Tourist')),
+          DropdownMenuItem(
+            value: UserRoles.communityContributor,
+            child: Text('Community Contributor'),
+          ),
+        ],
+        onChanged: loading
+            ? null
+            : (value) {
+                if (value == null) return;
+                setState(() => selectedRole = value);
+              },
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    fullNameController.dispose();
     emailController.dispose();
     passwordController.dispose();
     confirmPasswordController.dispose();
@@ -1812,6 +3441,15 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
+                    if (isSignup) ...[
+                      authTextField(
+                        controller: fullNameController,
+                        hint: 'Full name',
+                        icon: Icons.person_rounded,
+                        keyboardType: TextInputType.name,
+                      ),
+                      const SizedBox(height: 14),
+                    ],
                     authTextField(
                       controller: emailController,
                       hint: t('emailAddress'),
@@ -1873,6 +3511,8 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
                           },
                         ),
                       ),
+                      const SizedBox(height: 14),
+                      roleSelector(),
                       const SizedBox(height: 14),
                       languageSelector(),
                     ],
@@ -2178,7 +3818,9 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
 }
 
 class MainShell extends StatefulWidget {
-  const MainShell({super.key});
+  final String userRole;
+
+  const MainShell({super.key, this.userRole = UserRoles.tourist});
 
   @override
   State<MainShell> createState() => _MainShellState();
@@ -2193,36 +3835,52 @@ class _MainShellState extends State<MainShell> {
       valueListenable: LanguageController.current,
       builder: (context, language, _) {
         final code = language.code;
-        final screens = const [
-          HomeScreen(),
-          GeolocationScreen(),
-          MyJournalScreen(),
-          ProfileScreen(),
+        final isContributor = widget.userRole == UserRoles.communityContributor;
+
+        final screens = <Widget>[
+          const HomeScreen(),
+          const GeolocationScreen(),
+          const MyJournalScreen(),
+          if (isContributor) const ContributorDashboardScreen(),
+          const ProfileScreen(),
         ];
+
+        final destinations = <NavigationDestination>[
+          NavigationDestination(
+            icon: const Icon(Icons.home_rounded),
+            label: appText(code, 'home'),
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.map_rounded),
+            label: appText(code, 'geolocation'),
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.book_rounded),
+            label: appText(code, 'myJournal'),
+          ),
+          if (isContributor)
+            const NavigationDestination(
+              icon: Icon(Icons.history_edu_rounded),
+              label: 'Contribute',
+            ),
+          NavigationDestination(
+            icon: const Icon(Icons.person_rounded),
+            label: appText(code, 'profile'),
+          ),
+        ];
+
+        if (currentIndex >= screens.length) {
+          currentIndex = 0;
+        }
+
         return Scaffold(
           body: screens[currentIndex],
           bottomNavigationBar: NavigationBar(
             selectedIndex: currentIndex,
-            onDestinationSelected: (index) =>
-                setState(() => currentIndex = index),
-            destinations: [
-              NavigationDestination(
-                icon: const Icon(Icons.home_rounded),
-                label: appText(code, 'home'),
-              ),
-              NavigationDestination(
-                icon: const Icon(Icons.map_rounded),
-                label: appText(code, 'geolocation'),
-              ),
-              NavigationDestination(
-                icon: const Icon(Icons.book_rounded),
-                label: appText(code, 'myJournal'),
-              ),
-              NavigationDestination(
-                icon: const Icon(Icons.person_rounded),
-                label: appText(code, 'profile'),
-              ),
-            ],
+            onDestinationSelected: (index) {
+              setState(() => currentIndex = index);
+            },
+            destinations: destinations,
           ),
         );
       },

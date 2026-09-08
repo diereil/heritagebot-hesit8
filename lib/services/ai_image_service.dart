@@ -41,7 +41,8 @@ class GeminiImageService {
       return fallback;
     }
 
-    final prompt = '''Create a respectful educational heritage-tourism illustration for a mobile application.
+    final prompt =
+        '''Create a respectful educational heritage-tourism illustration for a mobile application.
 Place: $placeName
 Location: $location
 Language selected by user: $languageName
@@ -50,15 +51,24 @@ Narrative context: ${story.length > 900 ? story.substring(0, 900) : story}
 Requirements: cinematic heritage tourism scene, warm historical colors, realistic lighting, no text, no labels, no logos, no watermarks, no identifiable real people.''';
 
     try {
-      final uri = Uri.parse('https://generativelanguage.googleapis.com/v1beta/interactions');
-      final response = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json', 'x-goog-api-key': apiKey},
-        body: jsonEncode({
-          'model': model,
-          'input': [{'type': 'text', 'text': prompt}],
-        }),
-      ).timeout(const Duration(seconds: 60));
+      final uri = Uri.parse(
+        'https://generativelanguage.googleapis.com/v1beta/interactions',
+      );
+      final response = await http
+          .post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': apiKey,
+            },
+            body: jsonEncode({
+              'model': model,
+              'input': [
+                {'type': 'text', 'text': prompt},
+              ],
+            }),
+          )
+          .timeout(const Duration(seconds: 60));
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         final fallback = _fallbackImage(placeName);
@@ -101,20 +111,32 @@ Requirements: cinematic heritage tourism scene, warm historical colors, realisti
       final directOutput = value['output_image'] ?? value['outputImage'];
       if (directOutput is Map) {
         final data = directOutput['data'];
-        final mimeType = directOutput['mime_type'] ?? directOutput['mimeType'] ?? directOutput['mime'] ?? 'image/png';
-        if (data is String && data.trim().isNotEmpty) return _ImageData(base64Data: data, mimeType: mimeType.toString());
+        final mimeType =
+            directOutput['mime_type'] ??
+            directOutput['mimeType'] ??
+            directOutput['mime'] ??
+            'image/png';
+        if (data is String && data.trim().isNotEmpty)
+          return _ImageData(base64Data: data, mimeType: mimeType.toString());
       }
       final inlineData = value['inlineData'] ?? value['inline_data'];
       if (inlineData is Map) {
         final data = inlineData['data'];
-        final mimeType = inlineData['mimeType'] ?? inlineData['mime_type'] ?? 'image/png';
-        if (data is String && data.trim().isNotEmpty) return _ImageData(base64Data: data, mimeType: mimeType.toString());
+        final mimeType =
+            inlineData['mimeType'] ?? inlineData['mime_type'] ?? 'image/png';
+        if (data is String && data.trim().isNotEmpty)
+          return _ImageData(base64Data: data, mimeType: mimeType.toString());
       }
       final type = value['type'];
       if (type is String && type.toLowerCase().contains('image')) {
         final data = value['data'];
-        final mimeType = value['mime_type'] ?? value['mimeType'] ?? value['mime'] ?? 'image/png';
-        if (data is String && data.trim().isNotEmpty) return _ImageData(base64Data: data, mimeType: mimeType.toString());
+        final mimeType =
+            value['mime_type'] ??
+            value['mimeType'] ??
+            value['mime'] ??
+            'image/png';
+        if (data is String && data.trim().isNotEmpty)
+          return _ImageData(base64Data: data, mimeType: mimeType.toString());
       }
       for (final item in value.values) {
         final found = _extractImageData(item);

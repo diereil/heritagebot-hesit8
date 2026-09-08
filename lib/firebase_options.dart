@@ -62,8 +62,10 @@ class DefaultFirebaseOptions {
     messagingSenderId: '879489283255',
     projectId: 'heritagebot-bdc39',
     storageBucket: 'heritagebot-bdc39.firebasestorage.app',
-    androidClientId: '879489283255-duolubnrg09ntivv9k0vkidqn2n16id6.apps.googleusercontent.com',
-    iosClientId: '879489283255-tank7ktbnnr8v4su6jpj5dhsd0u3k6vs.apps.googleusercontent.com',
+    androidClientId:
+        '879489283255-duolubnrg09ntivv9k0vkidqn2n16id6.apps.googleusercontent.com',
+    iosClientId:
+        '879489283255-tank7ktbnnr8v4su6jpj5dhsd0u3k6vs.apps.googleusercontent.com',
     iosBundleId: 'com.example.heritagebot',
   );
   static const FirebaseOptions macos = FirebaseOptions(
@@ -72,8 +74,10 @@ class DefaultFirebaseOptions {
     messagingSenderId: '879489283255',
     projectId: 'heritagebot-bdc39',
     storageBucket: 'heritagebot-bdc39.firebasestorage.app',
-    androidClientId: '879489283255-duolubnrg09ntivv9k0vkidqn2n16id6.apps.googleusercontent.com',
-    iosClientId: '879489283255-tank7ktbnnr8v4su6jpj5dhsd0u3k6vs.apps.googleusercontent.com',
+    androidClientId:
+        '879489283255-duolubnrg09ntivv9k0vkidqn2n16id6.apps.googleusercontent.com',
+    iosClientId:
+        '879489283255-tank7ktbnnr8v4su6jpj5dhsd0u3k6vs.apps.googleusercontent.com',
     iosBundleId: 'com.example.heritagebot',
   );
 

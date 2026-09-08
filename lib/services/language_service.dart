@@ -7,21 +7,35 @@ class AppLanguage {
   final String name;
   final String storyInstruction;
 
-  const AppLanguage({required this.code, required this.name, required this.storyInstruction});
+  const AppLanguage({
+    required this.code,
+    required this.name,
+    required this.storyInstruction,
+  });
 }
 
 const List<AppLanguage> supportedLanguages = [
   AppLanguage(code: 'en', name: "English", storyInstruction: "English"),
-  AppLanguage(code: 'fil', name: "Filipino / Tagalog", storyInstruction: "Filipino or Tagalog"),
+  AppLanguage(
+    code: 'fil',
+    name: "Filipino / Tagalog",
+    storyInstruction: "Filipino or Tagalog",
+  ),
   AppLanguage(code: 'ko', name: "Korean", storyInstruction: "Korean"),
   AppLanguage(code: 'ja', name: "Japanese", storyInstruction: "Japanese"),
-  AppLanguage(code: 'zh', name: "Mandarin Chinese", storyInstruction: "Mandarin Chinese using Simplified Chinese characters"),
+  AppLanguage(
+    code: 'zh',
+    name: "Mandarin Chinese",
+    storyInstruction: "Mandarin Chinese using Simplified Chinese characters",
+  ),
   AppLanguage(code: 'nl', name: "Dutch", storyInstruction: "Dutch"),
   AppLanguage(code: 'es', name: "Spanish", storyInstruction: "Spanish"),
 ];
 
 class LanguageController {
-  static final ValueNotifier<AppLanguage> current = ValueNotifier<AppLanguage>(supportedLanguages.first);
+  static final ValueNotifier<AppLanguage> current = ValueNotifier<AppLanguage>(
+    supportedLanguages.first,
+  );
 
   static Future<void> load() async {
     current.value = await LanguageService().getPreferredLanguage();
@@ -57,16 +71,28 @@ class LanguageService {
     final prefs = await SharedPreferences.getInstance();
     final uid = _currentUid;
     if (uid != null && uid.trim().isNotEmpty) {
-      final userCode = await _normalizeSavedValue(prefs.get(_userKey(uid)), prefs, _userKey(uid));
+      final userCode = await _normalizeSavedValue(
+        prefs.get(_userKey(uid)),
+        prefs,
+        _userKey(uid),
+      );
       if (userCode != null) return userCode;
     }
-    final globalCode = await _normalizeSavedValue(prefs.get(_globalLanguageKey), prefs, _globalLanguageKey);
+    final globalCode = await _normalizeSavedValue(
+      prefs.get(_globalLanguageKey),
+      prefs,
+      _globalLanguageKey,
+    );
     if (globalCode != null) return globalCode;
     await savePreferredLanguageCode('en');
     return 'en';
   }
 
-  Future<String?> _normalizeSavedValue(dynamic savedValue, SharedPreferences prefs, String key) async {
+  Future<String?> _normalizeSavedValue(
+    dynamic savedValue,
+    SharedPreferences prefs,
+    String key,
+  ) async {
     if (savedValue is String && savedValue.trim().isNotEmpty) {
       final safeCode = languageByCode(savedValue.trim()).code;
       await prefs.setString(key, safeCode);
@@ -82,16 +108,22 @@ class LanguageService {
     return null;
   }
 
-  Future<AppLanguage> getPreferredLanguage() async => languageByCode(await getPreferredLanguageCode());
+  Future<AppLanguage> getPreferredLanguage() async =>
+      languageByCode(await getPreferredLanguageCode());
 }
 
 AppLanguage languageByCode(String code) {
-  return supportedLanguages.firstWhere((language) => language.code == code, orElse: () => supportedLanguages.first);
+  return supportedLanguages.firstWhere(
+    (language) => language.code == code,
+    orElse: () => supportedLanguages.first,
+  );
 }
 
 String appText(String code, String key) {
   final normalizedCode = languageByCode(code).code;
-  return _localizedText[normalizedCode]?[key] ?? _localizedText['en']?[key] ?? key;
+  return _localizedText[normalizedCode]?[key] ??
+      _localizedText['en']?[key] ??
+      key;
 }
 
 const Map<String, Map<String, String>> _localizedText = {
@@ -130,32 +162,41 @@ const Map<String, Map<String, String>> _localizedText = {
     "myJournal": "My Journal",
     "profile": "Profile",
     "welcomeHome": "Welcome to\nHeritageBot",
-    "homeIntro": "HeritageBot is a location-aware mobile application that generates AI-based historical stories, shows live map movement, and saves personal memory journals.",
+    "homeIntro":
+        "HeritageBot is a location-aware mobile application that generates AI-based historical stories, shows live map movement, and saves personal memory journals.",
     "aboutSystem": "About the System",
-    "aboutSystemBody": "The system uses geolocation and Gemini API to generate context-aware heritage stories based on the user’s nearby location.",
+    "aboutSystemBody":
+        "The system uses geolocation and Gemini API to generate context-aware heritage stories based on the user’s nearby location.",
     "aiStoryTitle": "AI-Generated Heritage Story",
-    "aiStoryBody": "The context-aware story is generated using Gemini API when the system detects a nearby place. It is not stored as fixed text.",
+    "aiStoryBody":
+        "The context-aware story is generated using Gemini API when the system detects a nearby place. It is not stored as fixed text.",
     "liveMapTitle": "Live Movement Map",
-    "liveMapBody": "The map follows your current GPS location while walking or driving, showing movement in real time.",
+    "liveMapBody":
+        "The map follows your current GPS location while walking or driving, showing movement in real time.",
     "memoryJournalTitle": "Memory Journal",
-    "memoryJournalBody": "Users can save private personal memories, photos, and videos connected to heritage places.",
+    "memoryJournalBody":
+        "Users can save private personal memories, photos, and videos connected to heritage places.",
     "heritageVideos": "Heritage Videos",
     "liveGeolocation": "Live Geolocation",
     "failedLocation": "Failed to get location",
     "startingLocation": "Starting live location tracking...",
     "mapReady": "Live movement map is ready.",
-    "mapInstruction": "The blue navigation marker follows your phone GPS while walking or driving. The story is generated by Gemini API when a nearby place is detected.",
+    "mapInstruction":
+        "The blue navigation marker follows your phone GPS while walking or driving. The story is generated by Gemini API when a nearby place is detected.",
     "refreshLocation": "Regenerate / Refresh Location",
     "nearest": "Nearest",
     "kmAway": "km away",
     "generatingStory": "Generating AI Heritage Story",
-    "generatingStoryBody": "HeritageBot is generating a context-aware story using Gemini API...",
+    "generatingStoryBody":
+        "HeritageBot is generating a context-aware story using Gemini API...",
     "contextStoryTitle": "AI Context-Aware Heritage Story",
     "generatingImage": "Generating AI Heritage Image",
-    "generatingImageBody": "HeritageBot is creating an AI image based on your nearby location and generated story...",
+    "generatingImageBody":
+        "HeritageBot is creating an AI image based on your nearby location and generated story...",
     "aiImageTitle": "AI Location-Based Heritage Image",
     "aiImageFallbackTitle": "Heritage Image Preview",
-    "aiImageFallbackBody": "The live AI image service is unavailable, so HeritageBot is showing a local illustrative heritage preview for this place.",
+    "aiImageFallbackBody":
+        "The live AI image service is unavailable, so HeritageBot is showing a local illustrative heritage preview for this place.",
     "noVideo": "No Video Available",
     "noVideoBody": "This nearest place has no assigned video yet.",
     "addMemoryHere": "Add Personal Memory Here",
@@ -163,9 +204,11 @@ const Map<String, Map<String, String>> _localizedText = {
     "previousMemories": "Your Previous Memories Here",
     "chooseHeritagePlace": "Choose Heritage Place",
     "chooseHeritagePlaceBody": "Select where this journal memory belongs.",
-    "noJournal": "No journal yet. Tap + to add a letter, photos, or videos connected to a heritage place.",
+    "noJournal":
+        "No journal yet. Tap + to add a letter, photos, or videos connected to a heritage place.",
     "addMemory": "Add Memory",
-    "addMemorySubtitle": "Write a letter or add family photos/videos connected to this place.",
+    "addMemorySubtitle":
+        "Write a letter or add family photos/videos connected to this place.",
     "writeMemoryLetter": "Write your memory letter",
     "selectedPictures": "Selected Pictures",
     "selectedVideos": "Selected Videos",
@@ -176,13 +219,15 @@ const Map<String, Map<String, String>> _localizedText = {
     "noEmail": "No email available",
     "changePassword": "Change Password",
     "changePasswordUnavailable": "Change Password Unavailable",
-    "changePasswordUnavailableMsg": "Change password is only available for email/password accounts.",
+    "changePasswordUnavailableMsg":
+        "Change password is only available for email/password accounts.",
     "logout": "Logout",
     "systemNote": "System Note",
-    "systemNoteBody": "This profile is connected to Firebase Authentication. Email, Gmail, and Facebook users will appear in Firebase Authentication → Users.",
+    "systemNoteBody":
+        "This profile is connected to Firebase Authentication. Email, Gmail, and Facebook users will appear in Firebase Authentication → Users.",
     "languageSettings": "Language Settings",
     "languageSaved": "Language preference saved.",
-    "attachedVideo": "Attached video"
+    "attachedVideo": "Attached video",
   },
   "zh": {
     "appSubtitle": "基于 AI 的历史叙事\n与记忆助手",
@@ -271,7 +316,7 @@ const Map<String, Map<String, String>> _localizedText = {
     "systemNoteBody": "此个人资料已连接到 Firebase Authentication。",
     "languageSettings": "语言设置",
     "languageSaved": "语言偏好已保存。",
-    "attachedVideo": "附加视频"
+    "attachedVideo": "附加视频",
   },
   "ja": {
     "appSubtitle": "AIベースの歴史ナラティブ\nおよびメモリーコンパニオン",
@@ -308,9 +353,11 @@ const Map<String, Map<String, String>> _localizedText = {
     "myJournal": "マイジャーナル",
     "profile": "プロフィール",
     "welcomeHome": "HeritageBotへ\nようこそ",
-    "homeIntro": "HeritageBotは位置情報に対応したモバイルアプリで、AIによる歴史ストーリー、リアルタイム地図、個人の思い出ジャーナルを提供します。",
+    "homeIntro":
+        "HeritageBotは位置情報に対応したモバイルアプリで、AIによる歴史ストーリー、リアルタイム地図、個人の思い出ジャーナルを提供します。",
     "aboutSystem": "システムについて",
-    "aboutSystemBody": "このシステムは位置情報とGemini APIを使用して、ユーザーの近くの場所に基づいた文化遺産ストーリーを生成します。",
+    "aboutSystemBody":
+        "このシステムは位置情報とGemini APIを使用して、ユーザーの近くの場所に基づいた文化遺産ストーリーを生成します。",
     "aiStoryTitle": "AI生成文化遺産ストーリー",
     "aiStoryBody": "近くの場所を検出すると、Gemini APIを使用して状況に応じたストーリーが生成されます。",
     "liveMapTitle": "ライブ移動マップ",
@@ -322,7 +369,8 @@ const Map<String, Map<String, String>> _localizedText = {
     "failedLocation": "位置情報の取得に失敗しました",
     "startingLocation": "ライブ位置追跡を開始しています...",
     "mapReady": "ライブ移動マップの準備ができました。",
-    "mapInstruction": "青いマーカーはスマートフォンのGPSに従います。近くの場所が検出されるとGemini APIがストーリーを生成します。",
+    "mapInstruction":
+        "青いマーカーはスマートフォンのGPSに従います。近くの場所が検出されるとGemini APIがストーリーを生成します。",
     "refreshLocation": "位置を更新",
     "nearest": "最寄り",
     "kmAway": "km 離れています",
@@ -360,7 +408,7 @@ const Map<String, Map<String, String>> _localizedText = {
     "systemNoteBody": "このプロフィールはFirebase Authenticationに接続されています。",
     "languageSettings": "言語設定",
     "languageSaved": "言語設定を保存しました。",
-    "attachedVideo": "添付動画"
+    "attachedVideo": "添付動画",
   },
   "fil": {
     "appSubtitle": "AI-Based Historical Narrative\nand Memory Companion",
@@ -397,32 +445,41 @@ const Map<String, Map<String, String>> _localizedText = {
     "myJournal": "Aking Journal",
     "profile": "Profile",
     "welcomeHome": "Welcome to\nHeritageBot",
-    "homeIntro": "HeritageBot is a location-aware mobile application that generates AI-based historical stories, shows live map movement, and saves personal memory journals.",
+    "homeIntro":
+        "HeritageBot is a location-aware mobile application that generates AI-based historical stories, shows live map movement, and saves personal memory journals.",
     "aboutSystem": "About the System",
-    "aboutSystemBody": "The system uses geolocation and Gemini API to generate context-aware heritage stories based on the user’s nearby location.",
+    "aboutSystemBody":
+        "The system uses geolocation and Gemini API to generate context-aware heritage stories based on the user’s nearby location.",
     "aiStoryTitle": "AI-Generated Heritage Story",
-    "aiStoryBody": "The context-aware story is generated using Gemini API when the system detects a nearby place. It is not stored as fixed text.",
+    "aiStoryBody":
+        "The context-aware story is generated using Gemini API when the system detects a nearby place. It is not stored as fixed text.",
     "liveMapTitle": "Live Movement Map",
-    "liveMapBody": "The map follows your current GPS location while walking or driving, showing movement in real time.",
+    "liveMapBody":
+        "The map follows your current GPS location while walking or driving, showing movement in real time.",
     "memoryJournalTitle": "Memory Journal",
-    "memoryJournalBody": "Users can save private personal memories, photos, and videos connected to heritage places.",
+    "memoryJournalBody":
+        "Users can save private personal memories, photos, and videos connected to heritage places.",
     "heritageVideos": "Heritage Videos",
     "liveGeolocation": "Live Geolocation",
     "failedLocation": "Failed to get location",
     "startingLocation": "Starting live location tracking...",
     "mapReady": "Live movement map is ready.",
-    "mapInstruction": "The blue navigation marker follows your phone GPS while walking or driving. The story is generated by Gemini API when a nearby place is detected.",
+    "mapInstruction":
+        "The blue navigation marker follows your phone GPS while walking or driving. The story is generated by Gemini API when a nearby place is detected.",
     "refreshLocation": "Regenerate / Refresh Location",
     "nearest": "Nearest",
     "kmAway": "km away",
     "generatingStory": "Generating AI Heritage Story",
-    "generatingStoryBody": "HeritageBot is generating a context-aware story using Gemini API...",
+    "generatingStoryBody":
+        "HeritageBot is generating a context-aware story using Gemini API...",
     "contextStoryTitle": "AI Context-Aware Heritage Story",
     "generatingImage": "Generating AI Heritage Image",
-    "generatingImageBody": "HeritageBot is creating an AI image based on your nearby location and generated story...",
+    "generatingImageBody":
+        "HeritageBot is creating an AI image based on your nearby location and generated story...",
     "aiImageTitle": "AI Location-Based Heritage Image",
     "aiImageFallbackTitle": "Heritage Image Preview",
-    "aiImageFallbackBody": "The live AI image service is unavailable, so HeritageBot is showing a local illustrative heritage preview for this place.",
+    "aiImageFallbackBody":
+        "The live AI image service is unavailable, so HeritageBot is showing a local illustrative heritage preview for this place.",
     "noVideo": "No Video Available",
     "noVideoBody": "This nearest place has no assigned video yet.",
     "addMemoryHere": "Add Personal Memory Here",
@@ -430,9 +487,11 @@ const Map<String, Map<String, String>> _localizedText = {
     "previousMemories": "Your Previous Memories Here",
     "chooseHeritagePlace": "Choose Heritage Place",
     "chooseHeritagePlaceBody": "Select where this journal memory belongs.",
-    "noJournal": "No journal yet. Tap + to add a letter, photos, or videos connected to a heritage place.",
+    "noJournal":
+        "No journal yet. Tap + to add a letter, photos, or videos connected to a heritage place.",
     "addMemory": "Add Memory",
-    "addMemorySubtitle": "Write a letter or add family photos/videos connected to this place.",
+    "addMemorySubtitle":
+        "Write a letter or add family photos/videos connected to this place.",
     "writeMemoryLetter": "Write your memory letter",
     "selectedPictures": "Selected Pictures",
     "selectedVideos": "Selected Videos",
@@ -443,13 +502,15 @@ const Map<String, Map<String, String>> _localizedText = {
     "noEmail": "No email available",
     "changePassword": "Palitan ang Password",
     "changePasswordUnavailable": "Change Password Unavailable",
-    "changePasswordUnavailableMsg": "Change password is only available for email/password accounts.",
+    "changePasswordUnavailableMsg":
+        "Change password is only available for email/password accounts.",
     "logout": "Logout",
     "systemNote": "System Note",
-    "systemNoteBody": "This profile is connected to Firebase Authentication. Email, Gmail, and Facebook users will appear in Firebase Authentication → Users.",
+    "systemNoteBody":
+        "This profile is connected to Firebase Authentication. Email, Gmail, and Facebook users will appear in Firebase Authentication → Users.",
     "languageSettings": "Language Settings",
     "languageSaved": "Na-save ang language preference.",
-    "attachedVideo": "Attached video"
+    "attachedVideo": "Attached video",
   },
   "ko": {
     "appSubtitle": "AI-Based Historical Narrative\nand Memory Companion",
@@ -486,32 +547,41 @@ const Map<String, Map<String, String>> _localizedText = {
     "myJournal": "내 저널",
     "profile": "프로필",
     "welcomeHome": "Welcome to\nHeritageBot",
-    "homeIntro": "HeritageBot is a location-aware mobile application that generates AI-based historical stories, shows live map movement, and saves personal memory journals.",
+    "homeIntro":
+        "HeritageBot is a location-aware mobile application that generates AI-based historical stories, shows live map movement, and saves personal memory journals.",
     "aboutSystem": "About the System",
-    "aboutSystemBody": "The system uses geolocation and Gemini API to generate context-aware heritage stories based on the user’s nearby location.",
+    "aboutSystemBody":
+        "The system uses geolocation and Gemini API to generate context-aware heritage stories based on the user’s nearby location.",
     "aiStoryTitle": "AI-Generated Heritage Story",
-    "aiStoryBody": "The context-aware story is generated using Gemini API when the system detects a nearby place. It is not stored as fixed text.",
+    "aiStoryBody":
+        "The context-aware story is generated using Gemini API when the system detects a nearby place. It is not stored as fixed text.",
     "liveMapTitle": "Live Movement Map",
-    "liveMapBody": "The map follows your current GPS location while walking or driving, showing movement in real time.",
+    "liveMapBody":
+        "The map follows your current GPS location while walking or driving, showing movement in real time.",
     "memoryJournalTitle": "Memory Journal",
-    "memoryJournalBody": "Users can save private personal memories, photos, and videos connected to heritage places.",
+    "memoryJournalBody":
+        "Users can save private personal memories, photos, and videos connected to heritage places.",
     "heritageVideos": "Heritage Videos",
     "liveGeolocation": "실시간 위치",
     "failedLocation": "Failed to get location",
     "startingLocation": "Starting live location tracking...",
     "mapReady": "Live movement map is ready.",
-    "mapInstruction": "The blue navigation marker follows your phone GPS while walking or driving. The story is generated by Gemini API when a nearby place is detected.",
+    "mapInstruction":
+        "The blue navigation marker follows your phone GPS while walking or driving. The story is generated by Gemini API when a nearby place is detected.",
     "refreshLocation": "Regenerate / Refresh Location",
     "nearest": "Nearest",
     "kmAway": "km away",
     "generatingStory": "Generating AI Heritage Story",
-    "generatingStoryBody": "HeritageBot is generating a context-aware story using Gemini API...",
+    "generatingStoryBody":
+        "HeritageBot is generating a context-aware story using Gemini API...",
     "contextStoryTitle": "AI Context-Aware Heritage Story",
     "generatingImage": "Generating AI Heritage Image",
-    "generatingImageBody": "HeritageBot is creating an AI image based on your nearby location and generated story...",
+    "generatingImageBody":
+        "HeritageBot is creating an AI image based on your nearby location and generated story...",
     "aiImageTitle": "AI Location-Based Heritage Image",
     "aiImageFallbackTitle": "Heritage Image Preview",
-    "aiImageFallbackBody": "The live AI image service is unavailable, so HeritageBot is showing a local illustrative heritage preview for this place.",
+    "aiImageFallbackBody":
+        "The live AI image service is unavailable, so HeritageBot is showing a local illustrative heritage preview for this place.",
     "noVideo": "No Video Available",
     "noVideoBody": "This nearest place has no assigned video yet.",
     "addMemoryHere": "Add Personal Memory Here",
@@ -519,9 +589,11 @@ const Map<String, Map<String, String>> _localizedText = {
     "previousMemories": "Your Previous Memories Here",
     "chooseHeritagePlace": "Choose Heritage Place",
     "chooseHeritagePlaceBody": "Select where this journal memory belongs.",
-    "noJournal": "No journal yet. Tap + to add a letter, photos, or videos connected to a heritage place.",
+    "noJournal":
+        "No journal yet. Tap + to add a letter, photos, or videos connected to a heritage place.",
     "addMemory": "Add Memory",
-    "addMemorySubtitle": "Write a letter or add family photos/videos connected to this place.",
+    "addMemorySubtitle":
+        "Write a letter or add family photos/videos connected to this place.",
     "writeMemoryLetter": "Write your memory letter",
     "selectedPictures": "Selected Pictures",
     "selectedVideos": "Selected Videos",
@@ -532,13 +604,15 @@ const Map<String, Map<String, String>> _localizedText = {
     "noEmail": "No email available",
     "changePassword": "비밀번호 변경",
     "changePasswordUnavailable": "Change Password Unavailable",
-    "changePasswordUnavailableMsg": "Change password is only available for email/password accounts.",
+    "changePasswordUnavailableMsg":
+        "Change password is only available for email/password accounts.",
     "logout": "로그아웃",
     "systemNote": "System Note",
-    "systemNoteBody": "This profile is connected to Firebase Authentication. Email, Gmail, and Facebook users will appear in Firebase Authentication → Users.",
+    "systemNoteBody":
+        "This profile is connected to Firebase Authentication. Email, Gmail, and Facebook users will appear in Firebase Authentication → Users.",
     "languageSettings": "언어 설정",
     "languageSaved": "언어 설정이 저장되었습니다.",
-    "attachedVideo": "Attached video"
+    "attachedVideo": "Attached video",
   },
   "nl": {
     "appSubtitle": "AI-Based Historical Narrative\nand Memory Companion",
@@ -575,32 +649,41 @@ const Map<String, Map<String, String>> _localizedText = {
     "myJournal": "Mijn dagboek",
     "profile": "Profiel",
     "welcomeHome": "Welcome to\nHeritageBot",
-    "homeIntro": "HeritageBot is a location-aware mobile application that generates AI-based historical stories, shows live map movement, and saves personal memory journals.",
+    "homeIntro":
+        "HeritageBot is a location-aware mobile application that generates AI-based historical stories, shows live map movement, and saves personal memory journals.",
     "aboutSystem": "About the System",
-    "aboutSystemBody": "The system uses geolocation and Gemini API to generate context-aware heritage stories based on the user’s nearby location.",
+    "aboutSystemBody":
+        "The system uses geolocation and Gemini API to generate context-aware heritage stories based on the user’s nearby location.",
     "aiStoryTitle": "AI-Generated Heritage Story",
-    "aiStoryBody": "The context-aware story is generated using Gemini API when the system detects a nearby place. It is not stored as fixed text.",
+    "aiStoryBody":
+        "The context-aware story is generated using Gemini API when the system detects a nearby place. It is not stored as fixed text.",
     "liveMapTitle": "Live Movement Map",
-    "liveMapBody": "The map follows your current GPS location while walking or driving, showing movement in real time.",
+    "liveMapBody":
+        "The map follows your current GPS location while walking or driving, showing movement in real time.",
     "memoryJournalTitle": "Memory Journal",
-    "memoryJournalBody": "Users can save private personal memories, photos, and videos connected to heritage places.",
+    "memoryJournalBody":
+        "Users can save private personal memories, photos, and videos connected to heritage places.",
     "heritageVideos": "Heritage Videos",
     "liveGeolocation": "Live locatie",
     "failedLocation": "Failed to get location",
     "startingLocation": "Starting live location tracking...",
     "mapReady": "Live movement map is ready.",
-    "mapInstruction": "The blue navigation marker follows your phone GPS while walking or driving. The story is generated by Gemini API when a nearby place is detected.",
+    "mapInstruction":
+        "The blue navigation marker follows your phone GPS while walking or driving. The story is generated by Gemini API when a nearby place is detected.",
     "refreshLocation": "Regenerate / Refresh Location",
     "nearest": "Nearest",
     "kmAway": "km away",
     "generatingStory": "Generating AI Heritage Story",
-    "generatingStoryBody": "HeritageBot is generating a context-aware story using Gemini API...",
+    "generatingStoryBody":
+        "HeritageBot is generating a context-aware story using Gemini API...",
     "contextStoryTitle": "AI Context-Aware Heritage Story",
     "generatingImage": "Generating AI Heritage Image",
-    "generatingImageBody": "HeritageBot is creating an AI image based on your nearby location and generated story...",
+    "generatingImageBody":
+        "HeritageBot is creating an AI image based on your nearby location and generated story...",
     "aiImageTitle": "AI Location-Based Heritage Image",
     "aiImageFallbackTitle": "Heritage Image Preview",
-    "aiImageFallbackBody": "The live AI image service is unavailable, so HeritageBot is showing a local illustrative heritage preview for this place.",
+    "aiImageFallbackBody":
+        "The live AI image service is unavailable, so HeritageBot is showing a local illustrative heritage preview for this place.",
     "noVideo": "No Video Available",
     "noVideoBody": "This nearest place has no assigned video yet.",
     "addMemoryHere": "Add Personal Memory Here",
@@ -608,9 +691,11 @@ const Map<String, Map<String, String>> _localizedText = {
     "previousMemories": "Your Previous Memories Here",
     "chooseHeritagePlace": "Choose Heritage Place",
     "chooseHeritagePlaceBody": "Select where this journal memory belongs.",
-    "noJournal": "No journal yet. Tap + to add a letter, photos, or videos connected to a heritage place.",
+    "noJournal":
+        "No journal yet. Tap + to add a letter, photos, or videos connected to a heritage place.",
     "addMemory": "Add Memory",
-    "addMemorySubtitle": "Write a letter or add family photos/videos connected to this place.",
+    "addMemorySubtitle":
+        "Write a letter or add family photos/videos connected to this place.",
     "writeMemoryLetter": "Write your memory letter",
     "selectedPictures": "Selected Pictures",
     "selectedVideos": "Selected Videos",
@@ -621,13 +706,15 @@ const Map<String, Map<String, String>> _localizedText = {
     "noEmail": "No email available",
     "changePassword": "Wachtwoord wijzigen",
     "changePasswordUnavailable": "Change Password Unavailable",
-    "changePasswordUnavailableMsg": "Change password is only available for email/password accounts.",
+    "changePasswordUnavailableMsg":
+        "Change password is only available for email/password accounts.",
     "logout": "Uitloggen",
     "systemNote": "System Note",
-    "systemNoteBody": "This profile is connected to Firebase Authentication. Email, Gmail, and Facebook users will appear in Firebase Authentication → Users.",
+    "systemNoteBody":
+        "This profile is connected to Firebase Authentication. Email, Gmail, and Facebook users will appear in Firebase Authentication → Users.",
     "languageSettings": "Taalinstellingen",
     "languageSaved": "Taalvoorkeur opgeslagen.",
-    "attachedVideo": "Attached video"
+    "attachedVideo": "Attached video",
   },
   "es": {
     "appSubtitle": "AI-Based Historical Narrative\nand Memory Companion",
@@ -664,32 +751,41 @@ const Map<String, Map<String, String>> _localizedText = {
     "myJournal": "Mi diario",
     "profile": "Perfil",
     "welcomeHome": "Welcome to\nHeritageBot",
-    "homeIntro": "HeritageBot is a location-aware mobile application that generates AI-based historical stories, shows live map movement, and saves personal memory journals.",
+    "homeIntro":
+        "HeritageBot is a location-aware mobile application that generates AI-based historical stories, shows live map movement, and saves personal memory journals.",
     "aboutSystem": "About the System",
-    "aboutSystemBody": "The system uses geolocation and Gemini API to generate context-aware heritage stories based on the user’s nearby location.",
+    "aboutSystemBody":
+        "The system uses geolocation and Gemini API to generate context-aware heritage stories based on the user’s nearby location.",
     "aiStoryTitle": "AI-Generated Heritage Story",
-    "aiStoryBody": "The context-aware story is generated using Gemini API when the system detects a nearby place. It is not stored as fixed text.",
+    "aiStoryBody":
+        "The context-aware story is generated using Gemini API when the system detects a nearby place. It is not stored as fixed text.",
     "liveMapTitle": "Live Movement Map",
-    "liveMapBody": "The map follows your current GPS location while walking or driving, showing movement in real time.",
+    "liveMapBody":
+        "The map follows your current GPS location while walking or driving, showing movement in real time.",
     "memoryJournalTitle": "Memory Journal",
-    "memoryJournalBody": "Users can save private personal memories, photos, and videos connected to heritage places.",
+    "memoryJournalBody":
+        "Users can save private personal memories, photos, and videos connected to heritage places.",
     "heritageVideos": "Heritage Videos",
     "liveGeolocation": "Geolocalización en vivo",
     "failedLocation": "Failed to get location",
     "startingLocation": "Starting live location tracking...",
     "mapReady": "Live movement map is ready.",
-    "mapInstruction": "The blue navigation marker follows your phone GPS while walking or driving. The story is generated by Gemini API when a nearby place is detected.",
+    "mapInstruction":
+        "The blue navigation marker follows your phone GPS while walking or driving. The story is generated by Gemini API when a nearby place is detected.",
     "refreshLocation": "Regenerate / Refresh Location",
     "nearest": "Nearest",
     "kmAway": "km away",
     "generatingStory": "Generating AI Heritage Story",
-    "generatingStoryBody": "HeritageBot is generating a context-aware story using Gemini API...",
+    "generatingStoryBody":
+        "HeritageBot is generating a context-aware story using Gemini API...",
     "contextStoryTitle": "AI Context-Aware Heritage Story",
     "generatingImage": "Generating AI Heritage Image",
-    "generatingImageBody": "HeritageBot is creating an AI image based on your nearby location and generated story...",
+    "generatingImageBody":
+        "HeritageBot is creating an AI image based on your nearby location and generated story...",
     "aiImageTitle": "AI Location-Based Heritage Image",
     "aiImageFallbackTitle": "Heritage Image Preview",
-    "aiImageFallbackBody": "The live AI image service is unavailable, so HeritageBot is showing a local illustrative heritage preview for this place.",
+    "aiImageFallbackBody":
+        "The live AI image service is unavailable, so HeritageBot is showing a local illustrative heritage preview for this place.",
     "noVideo": "No Video Available",
     "noVideoBody": "This nearest place has no assigned video yet.",
     "addMemoryHere": "Add Personal Memory Here",
@@ -697,9 +793,11 @@ const Map<String, Map<String, String>> _localizedText = {
     "previousMemories": "Your Previous Memories Here",
     "chooseHeritagePlace": "Choose Heritage Place",
     "chooseHeritagePlaceBody": "Select where this journal memory belongs.",
-    "noJournal": "No journal yet. Tap + to add a letter, photos, or videos connected to a heritage place.",
+    "noJournal":
+        "No journal yet. Tap + to add a letter, photos, or videos connected to a heritage place.",
     "addMemory": "Add Memory",
-    "addMemorySubtitle": "Write a letter or add family photos/videos connected to this place.",
+    "addMemorySubtitle":
+        "Write a letter or add family photos/videos connected to this place.",
     "writeMemoryLetter": "Write your memory letter",
     "selectedPictures": "Selected Pictures",
     "selectedVideos": "Selected Videos",
@@ -710,14 +808,14 @@ const Map<String, Map<String, String>> _localizedText = {
     "noEmail": "No email available",
     "changePassword": "Cambiar contraseña",
     "changePasswordUnavailable": "Change Password Unavailable",
-    "changePasswordUnavailableMsg": "Change password is only available for email/password accounts.",
+    "changePasswordUnavailableMsg":
+        "Change password is only available for email/password accounts.",
     "logout": "Cerrar sesión",
     "systemNote": "System Note",
-    "systemNoteBody": "This profile is connected to Firebase Authentication. Email, Gmail, and Facebook users will appear in Firebase Authentication → Users.",
+    "systemNoteBody":
+        "This profile is connected to Firebase Authentication. Email, Gmail, and Facebook users will appear in Firebase Authentication → Users.",
     "languageSettings": "Configuración de idioma",
     "languageSaved": "Preferencia de idioma guardada.",
-    "attachedVideo": "Attached video"
-  }
+    "attachedVideo": "Attached video",
+  },
 };
-
-
