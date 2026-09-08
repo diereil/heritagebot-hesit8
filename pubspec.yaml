@@ -33,6 +33,7 @@ dependencies:
   video_player: ^2.10.0
   path_provider: ^2.1.5
   http: ^1.2.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
