@@ -138,12 +138,7 @@ class CommunityMediaService {
     final request = http.MultipartRequest('POST', endpoint)
       ..fields['upload_preset'] = _uploadPreset
       ..fields['folder'] = folder
-      ..files.add(
-        await http.MultipartFile.fromPath(
-          'file',
-          file.path,
-        ),
-      );
+      ..files.add(await http.MultipartFile.fromPath('file', file.path));
 
     final streamedResponse = await request.send();
     final responseBody = await streamedResponse.stream.bytesToString();
@@ -158,11 +153,9 @@ class CommunityMediaService {
 
     if (streamedResponse.statusCode < 200 ||
         streamedResponse.statusCode >= 300) {
-      final cloudinaryMessage =
-          (decoded['error'] is Map<String, dynamic>)
-              ? (decoded['error'] as Map<String, dynamic>)['message']
-                    ?.toString()
-              : null;
+      final cloudinaryMessage = (decoded['error'] is Map<String, dynamic>)
+          ? (decoded['error'] as Map<String, dynamic>)['message']?.toString()
+          : null;
 
       throw Exception(
         cloudinaryMessage?.trim().isNotEmpty == true

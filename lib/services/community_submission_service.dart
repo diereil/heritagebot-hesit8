@@ -89,6 +89,8 @@ class CommunitySubmissionService {
     required String heritagePlaceName,
     required String title,
     required String story,
+    required List<String> imageUrls,
+    required List<String> videoUrls,
   }) async {
     final user = _currentUser;
 
@@ -122,6 +124,8 @@ class CommunitySubmissionService {
       'heritagePlaceName': heritagePlaceName,
       'title': safeTitle,
       'story': safeStory,
+      'imageUrls': imageUrls,
+      'videoUrls': videoUrls,
       'status': CommunitySubmissionStatus.pending,
       'updatedAtMillis': DateTime.now().millisecondsSinceEpoch,
     });
@@ -143,6 +147,24 @@ class CommunitySubmissionService {
     }
 
     await _collection.doc(submission.id).delete();
+  }
+
+  Future<List<CommunitySubmission>> getApprovedSubmissions() async {
+    _currentUser;
+
+    final snapshot = await _collection
+        .where('status', isEqualTo: CommunitySubmissionStatus.approved)
+        .get();
+
+    final submissions = snapshot.docs
+        .map(
+          (doc) => CommunitySubmission.fromMap(doc.data(), documentId: doc.id),
+        )
+        .toList();
+
+    submissions.sort((a, b) => b.updatedAtMillis.compareTo(a.updatedAtMillis));
+
+    return submissions;
   }
 
   Future<List<CommunitySubmission>> getAllSubmissions() async {

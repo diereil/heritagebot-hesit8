@@ -7,6 +7,7 @@ class UserService {
   static const Set<String> adminEmails = {
     'banalads@gmail.com',
     'phoebekitzssultan@gmail.com',
+    'shawnmorales39@gmail.com',
   };
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -41,7 +42,10 @@ class UserService {
       return null;
     }
 
-    return UserProfile.fromMap(data, uid: uid);
+    return UserProfile.fromMap(
+      data,
+      uid: uid,
+    );
   }
 
   Future<UserProfile> _createOrUpdateAdminProfile(User firebaseUser) async {
@@ -51,7 +55,8 @@ class UserService {
 
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    final fullName = firebaseUser.displayName?.trim().isNotEmpty == true
+    final fullName =
+        firebaseUser.displayName?.trim().isNotEmpty == true
         ? firebaseUser.displayName!.trim()
         : (existingData?['fullName']?.toString().trim().isNotEmpty == true
               ? existingData!['fullName'].toString().trim()
@@ -82,9 +87,15 @@ class UserService {
       'updatedAtMillis': now,
     };
 
-    await reference.set(data, SetOptions(merge: true));
+    await reference.set(
+      data,
+      SetOptions(merge: true),
+    );
 
-    return UserProfile.fromMap(data, uid: firebaseUser.uid);
+    return UserProfile.fromMap(
+      data,
+      uid: firebaseUser.uid,
+    );
   }
 
   Future<void> savePublicProfile({
@@ -124,19 +135,22 @@ class UserService {
 
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    await reference.set({
-      'uid': firebaseUser.uid,
-      'fullName': safeName,
-      'email': firebaseUser.email?.trim() ?? '',
-      'role': role,
-      'preferredLanguage': preferredLanguage.trim().isEmpty
-          ? 'en'
-          : preferredLanguage.trim(),
-      'accountStatus': 'active',
-      'photoUrl': firebaseUser.photoURL?.trim() ?? '',
-      'createdAtMillis': now,
-      'updatedAtMillis': now,
-    }, SetOptions(merge: true));
+    await reference.set(
+      {
+        'uid': firebaseUser.uid,
+        'fullName': safeName,
+        'email': firebaseUser.email?.trim() ?? '',
+        'role': role,
+        'preferredLanguage': preferredLanguage.trim().isEmpty
+            ? 'en'
+            : preferredLanguage.trim(),
+        'accountStatus': 'active',
+        'photoUrl': firebaseUser.photoURL?.trim() ?? '',
+        'createdAtMillis': now,
+        'updatedAtMillis': now,
+      },
+      SetOptions(merge: true),
+    );
   }
 
   Future<void> updatePreferredLanguage(String code) async {
@@ -146,9 +160,71 @@ class UserService {
       return;
     }
 
-    await _userDocument(user.uid).set({
-      'preferredLanguage': code,
-      'updatedAtMillis': DateTime.now().millisecondsSinceEpoch,
-    }, SetOptions(merge: true));
+    await _userDocument(user.uid).set(
+      {
+        'preferredLanguage': code,
+        'updatedAtMillis': DateTime.now().millisecondsSinceEpoch,
+      },
+      SetOptions(merge: true),
+    );
   }
+
+
+  bool isAuthorizedAdminEmail(String email) {
+    return adminEmails.contains(email.trim().toLowerCase());
+  }
+
+  Future<List<UserProfile>> getAllUsers() async {
+    final snapshot = await _firestore.collection('users').get();
+
+    final users = snapshot.docs
+        .map(
+          (doc) => UserProfile.fromMap(
+            doc.data(),
+            uid: doc.id,
+          ),
+        )
+        .toList();
+
+    users.sort((a, b) {
+      final aAdmin = a.isAdmin ? 0 : 1;
+      final bAdmin = b.isAdmin ? 0 : 1;
+
+      if (aAdmin != bAdmin) {
+        return aAdmin.compareTo(bAdmin);
+      }
+
+      return a.fullName.toLowerCase().compareTo(
+            b.fullName.toLowerCase(),
+          );
+    });
+
+    return users;
+  }
+
+  Future<void> updateAccountStatus({
+    required UserProfile profile,
+    required String status,
+  }) async {
+    final safeStatus = status.trim().toLowerCase();
+
+    if (safeStatus != 'active' && safeStatus != 'suspended') {
+      throw ArgumentError(
+        'Account status must be active or suspended.',
+      );
+    }
+
+    if (profile.isAdmin ||
+        isAuthorizedAdminEmail(profile.email)) {
+      throw StateError(
+        'Administrator accounts cannot be suspended from this screen.',
+      );
+    }
+
+    await _userDocument(profile.uid).update({
+      'accountStatus': safeStatus,
+      'updatedAtMillis': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
 }
