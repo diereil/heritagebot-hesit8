@@ -43,6 +43,8 @@ import 'services/language_service.dart';
 import 'services/user_service.dart';
 import 'services/heritage_discovery_service.dart';
 import 'services/navigation_service.dart';
+import 'services/system_settings_service.dart';
+import 'services/usage_analytics_service.dart';
 
 const String geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
 const String geminiModel = 'gemini-3.6-flash';
@@ -54,6 +56,7 @@ Future<void> main() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   await GoogleSignIn.instance.initialize();
+  await SystemSettingsService().loadRuntimeSettings();
   await LanguageController.load();
 
   // Firestore becomes the source of truth after the Administrator
@@ -3248,10 +3251,415 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     },
                   ),
                 ),
+                Card(
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    leading: const Icon(
+                      Icons.settings_rounded,
+                      color: AppColors.brown,
+                    ),
+                    title: const Text(
+                      'System Settings',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.deepBrown,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Manage supported languages, notification settings, and create a Firestore database backup.',
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const AdminSystemSettingsScreen(),
+                        ),
+                      );
+
+                      if (mounted) {
+                        setState(() {});
+                      }
+                    },
+                  ),
+                ),
               ],
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+class AdminSystemSettingsScreen extends StatefulWidget {
+  const AdminSystemSettingsScreen({super.key});
+
+  @override
+  State<AdminSystemSettingsScreen> createState() =>
+      _AdminSystemSettingsScreenState();
+}
+
+class _AdminSystemSettingsScreenState extends State<AdminSystemSettingsScreen> {
+  final SystemSettingsService _settingsService = SystemSettingsService();
+
+  late Future<HeritageBotSystemSettings> _settingsFuture;
+  Set<String> _enabledLanguages = <String>{};
+  bool _notificationsEnabled = true;
+  bool _initializedForm = false;
+  bool _saving = false;
+  bool _backingUp = false;
+  String? _latestBackupPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  void _reload() {
+    _initializedForm = false;
+    _settingsFuture = _settingsService.getSettings();
+  }
+
+  void _initializeForm(HeritageBotSystemSettings settings) {
+    if (_initializedForm) return;
+    _enabledLanguages = Set<String>.from(settings.enabledLanguageCodes)
+      ..add('en');
+    _notificationsEnabled = settings.notificationsEnabled;
+    _initializedForm = true;
+  }
+
+  String _formatDate(int? millis) {
+    if (millis == null || millis <= 0) return 'No backup created yet';
+    final date = DateTime.fromMillisecondsSinceEpoch(millis).toLocal();
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${two(date.month)}/${two(date.day)}/${date.year} '
+        '${two(date.hour)}:${two(date.minute)}';
+  }
+
+  Future<void> _saveSettings() async {
+    if (_saving) return;
+
+    setState(() => _saving = true);
+    try {
+      final saved = await _settingsService.saveSettings(
+        enabledLanguageCodes: _enabledLanguages,
+        notificationsEnabled: _notificationsEnabled,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _enabledLanguages = Set<String>.from(saved.enabledLanguageCodes);
+        _notificationsEnabled = saved.notificationsEnabled;
+        _settingsFuture = Future.value(saved);
+        _initializedForm = true;
+      });
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('System settings saved successfully.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('Could not save settings: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _backupDatabase() async {
+    if (_backingUp) return;
+
+    setState(() => _backingUp = true);
+    try {
+      final result = await _settingsService.createDatabaseBackup();
+      if (!mounted) return;
+
+      final refreshed = await _settingsService.getSettings();
+      if (!mounted) return;
+
+      setState(() {
+        _latestBackupPath = result.filePath;
+        _settingsFuture = Future.value(refreshed);
+        _initializedForm = false;
+      });
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              'Database backup created: ${result.fileName} '
+              '(${result.recordCount} records).',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('Database backup failed: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    } finally {
+      if (mounted) setState(() => _backingUp = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('System Settings'),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: () => setState(_reload),
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
+      body: FutureBuilder<HeritageBotSystemSettings>(
+        future: _settingsFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError || !snapshot.hasData) {
+            return ListView(
+              padding: const EdgeInsets.all(18),
+              children: [
+                const InfoCard(
+                  icon: Icons.settings_backup_restore_rounded,
+                  title: 'System Settings Unavailable',
+                  body:
+                      'HeritageBot could not load the administrator settings from Cloud Firestore.',
+                ),
+                const SizedBox(height: 12),
+                if (snapshot.error != null)
+                  Text(
+                    snapshot.error.toString(),
+                    style: const TextStyle(color: Colors.black54),
+                  ),
+              ],
+            );
+          }
+
+          final settings = snapshot.data!;
+          _initializeForm(settings);
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 40),
+            children: [
+              const SectionTitle(
+                title: 'Backup and System Settings',
+                subtitle:
+                    'Manage the supported languages and notification preference used by HeritageBot, then save the settings to Cloud Firestore.',
+              ),
+              const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.language_rounded, color: AppColors.brown),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Language Settings',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                color: AppColors.deepBrown,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Choose which languages are available to Tourist and Community Contributor accounts. English remains enabled as the system fallback.',
+                        style: TextStyle(color: Colors.black54, height: 1.4),
+                      ),
+                      const SizedBox(height: 10),
+                      ...supportedLanguages.map(
+                        (language) => CheckboxListTile(
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          title: Text(
+                            language.name,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          subtitle: language.code == 'en'
+                              ? const Text('Required fallback language')
+                              : Text('Language code: ${language.code}'),
+                          value: _enabledLanguages.contains(language.code),
+                          onChanged: language.code == 'en'
+                              ? null
+                              : (value) {
+                                  setState(() {
+                                    if (value == true) {
+                                      _enabledLanguages.add(language.code);
+                                    } else {
+                                      _enabledLanguages.remove(language.code);
+                                    }
+                                  });
+                                },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: SwitchListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  secondary: const Icon(
+                    Icons.notifications_active_rounded,
+                    color: AppColors.brown,
+                  ),
+                  title: const Text(
+                    'Notification Settings',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.deepBrown,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Master setting for HeritageBot account, contribution, and system notifications.',
+                  ),
+                  value: _notificationsEnabled,
+                  onChanged: (value) {
+                    setState(() => _notificationsEnabled = value);
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: _saving ? null : _saveSettings,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.save_rounded),
+                label: Text(_saving ? 'Saving Settings...' : 'Save Settings'),
+                style: mainButtonStyle(),
+              ),
+              const SizedBox(height: 22),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.backup_rounded, color: AppColors.brown),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Database Backup',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                color: AppColors.deepBrown,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Last Backup: ${_formatDate(settings.lastBackupAtMillis)}',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      if (settings.lastBackupFileName.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          settings.lastBackupFileName,
+                          style: const TextStyle(color: Colors.black54),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '${settings.lastBackupRecordCount} records included',
+                          style: const TextStyle(color: Colors.black54),
+                        ),
+                      ],
+                      if (_latestBackupPath != null) ...[
+                        const SizedBox(height: 10),
+                        SelectableText(
+                          'Saved on this device:\n$_latestBackupPath',
+                          style: const TextStyle(
+                            color: Colors.black54,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 14),
+                      OutlinedButton.icon(
+                        onPressed: _backingUp ? null : _backupDatabase,
+                        icon: _backingUp
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.backup_rounded),
+                        label: Text(
+                          _backingUp ? 'Creating Backup...' : 'Backup Database',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'The JSON backup includes Firestore users, bookmarks, journal entries, heritage sites, community submissions, historical knowledge, AI narratives, and system settings.',
+                        style: TextStyle(
+                          color: Colors.black54,
+                          height: 1.4,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -4441,6 +4849,49 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
     );
   }
 
+  Widget _rankingRow({
+    required int rank,
+    required String label,
+    required int value,
+    required String suffix,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: AppColors.gold.withOpacity(0.20),
+            child: Text(
+              '$rank',
+              style: const TextStyle(
+                fontWeight: FontWeight.w900,
+                color: AppColors.brown,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                color: AppColors.deepBrown,
+              ),
+            ),
+          ),
+          Text(
+            '$value $suffix',
+            style: const TextStyle(
+              fontWeight: FontWeight.w900,
+              color: AppColors.brown,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _analyticsSection({
     required String title,
     required String subtitle,
@@ -4564,6 +5015,41 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                   subtitle:
                       'Approved contributions compared with all submitted community stories.',
                 ),
+                _metricCard(
+                  icon: Icons.auto_awesome_rounded,
+                  label: 'Generated AI Narratives',
+                  value: '${analytics.generatedNarratives}',
+                  subtitle:
+                      'AI historical narratives recorded by HeritageBot for monitoring and review.',
+                ),
+                _metricCard(
+                  icon: Icons.visibility_rounded,
+                  label: 'Heritage Site Views',
+                  value: '${analytics.siteViews}',
+                  subtitle:
+                      'Registered heritage-site detail views tracked after Advanced Analytics was enabled.',
+                ),
+                _metricCard(
+                  icon: Icons.travel_explore_rounded,
+                  label: 'Dynamic Heritage Searches',
+                  value: '${analytics.dynamicSearches}',
+                  subtitle:
+                      'AI location-based heritage discovery searches performed by users.',
+                ),
+                _metricCard(
+                  icon: Icons.directions_walk_rounded,
+                  label: 'Navigation Starts',
+                  value: '${analytics.navigationStarts}',
+                  subtitle:
+                      'In-app navigation sessions started toward registered heritage sites.',
+                ),
+                _metricCard(
+                  icon: Icons.history_toggle_off_rounded,
+                  label: 'Community Activity (30 Days)',
+                  value: '${analytics.communityActivityLast30Days}',
+                  subtitle:
+                      'Community submissions created or updated during the last 30 days.',
+                ),
                 const SizedBox(height: 8),
                 _analyticsSection(
                   title: 'User Distribution',
@@ -4635,6 +5121,50 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                       total: analytics.totalSubmissions,
                     ),
                   ],
+                ),
+                _analyticsSection(
+                  title: 'Most Viewed Heritage Sites',
+                  subtitle:
+                      'Registered heritage sites ranked by tracked detail-page views. Tracking begins with Step 20.',
+                  children: analytics.topViewedSites.isEmpty
+                      ? const [
+                          Text(
+                            'No site-view activity has been recorded yet.',
+                            style: TextStyle(color: Colors.black54),
+                          ),
+                        ]
+                      : List.generate(analytics.topViewedSites.length, (index) {
+                          final item = analytics.topViewedSites[index];
+                          return _rankingRow(
+                            rank: index + 1,
+                            label: item.siteName,
+                            value: item.count,
+                            suffix: item.count == 1 ? 'view' : 'views',
+                          );
+                        }),
+                ),
+                _analyticsSection(
+                  title: 'Most Bookmarked Heritage Sites',
+                  subtitle:
+                      'Registered heritage sites ranked by current user bookmarks.',
+                  children: analytics.topBookmarkedSites.isEmpty
+                      ? const [
+                          Text(
+                            'No heritage-site bookmarks are available yet.',
+                            style: TextStyle(color: Colors.black54),
+                          ),
+                        ]
+                      : List.generate(analytics.topBookmarkedSites.length, (
+                          index,
+                        ) {
+                          final item = analytics.topBookmarkedSites[index];
+                          return _rankingRow(
+                            rank: index + 1,
+                            label: item.siteName,
+                            value: item.count,
+                            suffix: item.count == 1 ? 'bookmark' : 'bookmarks',
+                          );
+                        }),
                 ),
               ],
             );
@@ -6792,20 +7322,23 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
             borderSide: const BorderSide(color: AppColors.gold, width: 1.7),
           ),
         ),
-        items: supportedLanguages
-            .map(
-              (language) => DropdownMenuItem<String>(
-                value: language.code,
-                child: Text(
-                  language.name,
-                  style: const TextStyle(
-                    color: AppColors.deepBrown,
-                    fontWeight: FontWeight.w800,
+        items:
+            SystemSettingsService.enabledLanguagesForUi(
+                  includeCode: selectedLanguageCode,
+                )
+                .map(
+                  (language) => DropdownMenuItem<String>(
+                    value: language.code,
+                    child: Text(
+                      language.name,
+                      style: const TextStyle(
+                        color: AppColors.deepBrown,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            )
-            .toList(),
+                )
+                .toList(),
         onChanged: loading
             ? null
             : (value) {
@@ -7990,6 +8523,13 @@ class _HeritageSiteSearchScreenState extends State<HeritageSiteSearchScreen> {
 
     try {
       final result = await _discoveryService.searchByLocation(query);
+      unawaited(
+        UsageAnalyticsService().trackDynamicHeritageSearch(
+          query: query,
+          resolvedLocation: result.resolvedLocation,
+          resultCount: result.places.length,
+        ),
+      );
       if (!mounted) return;
       setState(() => _discoveryResult = result);
     } catch (error) {
@@ -9291,6 +9831,7 @@ class HeritageSiteDetailScreen extends StatefulWidget {
 
 class _HeritageSiteDetailScreenState extends State<HeritageSiteDetailScreen> {
   final BookmarkService _bookmarkService = BookmarkService();
+  final UsageAnalyticsService _usageAnalyticsService = UsageAnalyticsService();
 
   bool loadingBookmark = true;
   bool savingBookmark = false;
@@ -9302,6 +9843,7 @@ class _HeritageSiteDetailScreenState extends State<HeritageSiteDetailScreen> {
   void initState() {
     super.initState();
     _loadBookmark();
+    unawaited(_usageAnalyticsService.trackSiteView(site));
   }
 
   Future<void> _loadBookmark() async {
@@ -9438,6 +9980,7 @@ class _HeritageSiteDetailScreenState extends State<HeritageSiteDetailScreen> {
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: () {
+                unawaited(_usageAnalyticsService.trackNavigationStart(site));
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -10126,14 +10669,17 @@ class _NarrativeTranslationPanelState extends State<NarrativeTranslationPanel> {
                   labelText: 'Translate to',
                   border: OutlineInputBorder(),
                 ),
-                items: supportedLanguages
-                    .map(
-                      (language) => DropdownMenuItem<String>(
-                        value: language.code,
-                        child: Text(language.name),
-                      ),
-                    )
-                    .toList(),
+                items:
+                    SystemSettingsService.enabledLanguagesForUi(
+                          includeCode: _targetLanguage.code,
+                        )
+                        .map(
+                          (language) => DropdownMenuItem<String>(
+                            value: language.code,
+                            child: Text(language.name),
+                          ),
+                        )
+                        .toList(),
                 onChanged: _translating
                     ? null
                     : (value) {
@@ -11294,14 +11840,15 @@ class ProfileScreen extends StatelessWidget {
                 label: appText(code, 'preferredLanguage'),
                 icon: Icons.translate_rounded,
               ),
-              items: supportedLanguages
-                  .map(
-                    (language) => DropdownMenuItem<String>(
-                      value: language.code,
-                      child: Text(language.name),
-                    ),
-                  )
-                  .toList(),
+              items:
+                  SystemSettingsService.enabledLanguagesForUi(includeCode: code)
+                      .map(
+                        (language) => DropdownMenuItem<String>(
+                          value: language.code,
+                          child: Text(language.name),
+                        ),
+                      )
+                      .toList(),
               onChanged: (value) async {
                 if (value == null) return;
                 await LanguageController.setLanguageCode(value);
