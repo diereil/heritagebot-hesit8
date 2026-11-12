@@ -1,0 +1,4 @@
+{
+  "CLOUDINARY_CLOUD_NAME": "heritagebot-test",
+  "CLOUDINARY_UPLOAD_PRESET": "heritagebot-test-preset"
+}

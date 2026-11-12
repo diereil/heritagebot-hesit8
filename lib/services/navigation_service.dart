@@ -17,14 +17,27 @@ class NavigationService {
   }) async {
     final payload = <String, dynamic>{
       'locations': [
-        {'lat': start.latitude, 'lon': start.longitude, 'type': 'break'},
+        {
+          'lat': start.latitude,
+          'lon': start.longitude,
+          'type': 'break',
+          'search_filter': {'exclude_ferry': true},
+        },
         {
           'lat': destination.latitude,
           'lon': destination.longitude,
           'type': 'break',
+          'search_filter': {'exclude_ferry': true},
         },
       ],
       'costing': 'pedestrian',
+      'costing_options': {
+        'pedestrian': {
+          'use_ferry': 0.0,
+          'ferry_cost': 43200,
+          'use_tracks': 0.2,
+        },
+      },
       'units': 'kilometers',
       'directions_options': {'units': 'kilometers', 'language': 'en-US'},
     };
@@ -88,6 +101,15 @@ class NavigationService {
 
           final instruction = maneuverValue['instruction']?.toString().trim();
           if (instruction == null || instruction.isEmpty) continue;
+
+          final lowerInstruction = instruction.toLowerCase();
+          if (lowerInstruction.contains('ferry') ||
+              lowerInstruction.contains('boat') ||
+              lowerInstruction.contains('water taxi')) {
+            throw Exception(
+              'HeritageBot rejected a water/ferry route. No safe walking-only route was found for this destination.',
+            );
+          }
 
           steps.add(
             NavigationStep(

@@ -53,6 +53,20 @@ class CommunitySubmissionService {
     required List<String> videoUrls,
   }) async {
     final user = _currentUser;
+    final safeTitle = title.trim();
+    final safeStory = story.trim();
+
+    if (safeTitle.length < 5) {
+      throw ArgumentError(
+        'Please enter a clear story title with at least 5 characters.',
+      );
+    }
+
+    if (safeStory.length < 80) {
+      throw ArgumentError(
+        'Please write at least 80 characters of meaningful heritage content before submitting.',
+      );
+    }
 
     final reference = _collection.doc(submissionId);
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -68,8 +82,8 @@ class CommunitySubmissionService {
       contributorEmail: user.email?.trim() ?? '',
       heritagePlaceId: heritagePlaceId,
       heritagePlaceName: heritagePlaceName,
-      title: title.trim(),
-      story: story.trim(),
+      title: safeTitle,
+      story: safeStory,
       status: CommunitySubmissionStatus.pending,
       adminFeedback: '',
       imageUrls: imageUrls,
@@ -109,13 +123,15 @@ class CommunitySubmissionService {
     final safeTitle = title.trim();
     final safeStory = story.trim();
 
-    if (safeTitle.length < 3) {
-      throw ArgumentError('Please enter a story title.');
+    if (safeTitle.length < 5) {
+      throw ArgumentError(
+        'Please enter a clear story title with at least 5 characters.',
+      );
     }
 
-    if (safeStory.length < 20) {
+    if (safeStory.length < 80) {
       throw ArgumentError(
-        'Please write a more complete heritage story before saving.',
+        'Please write at least 80 characters of meaningful heritage content before saving.',
       );
     }
 
@@ -147,6 +163,20 @@ class CommunitySubmissionService {
     }
 
     await _collection.doc(submission.id).delete();
+  }
+
+  Future<void> deleteSubmissionAsAdmin(String submissionId) async {
+    _currentUser;
+
+    final safeId = submissionId.trim();
+    if (safeId.isEmpty) {
+      throw ArgumentError('Submission ID is missing.');
+    }
+
+    // Firestore security rules remain the final authority. Only an
+    // authenticated HeritageBot administrator is allowed to delete any
+    // community submission.
+    await _collection.doc(safeId).delete();
   }
 
   Future<List<CommunitySubmission>> getApprovedSubmissions() async {

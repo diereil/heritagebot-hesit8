@@ -1,0 +1,25 @@
+// REFERENCE ONLY. Do not rename to *_test.dart or treat this as evidence.
+// Illustrates how to connect CASE-001 to an EXISTING actual validator.
+// Replace the import with your actual project's class and method paths.
+//
+// import 'package:heritagebot/utils/email_validator.dart';
+// import 'heritagebot_test_adapter.dart';
+//
+// class RealHeritageBotTestAdapter implements HeritageBotTestAdapter {
+//   @override
+//   Future<Map<String, Object?>> execute(HeritageBotScenario scenario) async {
+//     switch (scenario.id) {
+//       case 'CASE-001':
+//         final email = scenario.inputs['email'] as String?;
+//         final error = validateEmail(email); // YOUR APP'S ACTUAL VALIDATOR
+//         return <String, Object?>{
+//           'loginAccepted': error == null,
+//           'emailErrorVisible': error != null,
+//         };
+//       default:
+//         throw UnimplementedError('Connect ${scenario.id} to real app code');
+//     }
+//   }
+// }
+//
+// Then return RealHeritageBotTestAdapter() in createHeritageBotTestAdapter().

@@ -17,6 +17,9 @@ import 'package:video_player/video_player.dart';
 import 'firebase_options.dart';
 
 import 'core/constants/app_colors.dart';
+import 'ui/theme/heritagebot_theme.dart';
+import 'ui/widgets/heritagebot_logo.dart';
+import 'ui/screens/heritage_splash_screen.dart';
 import 'models/community_submission.dart';
 import 'models/heritage_place.dart';
 import 'models/journal_entry.dart';
@@ -75,29 +78,16 @@ class HeritageBotApp extends StatelessWidget {
     return MaterialApp(
       title: 'HeritageBot',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        scaffoldBackgroundColor: AppColors.bg,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: AppColors.brown,
-          primary: AppColors.brown,
-          secondary: AppColors.gold,
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: AppColors.brown,
-          foregroundColor: Colors.white,
-          centerTitle: true,
-          titleTextStyle: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w900,
-            color: Colors.white,
-          ),
-        ),
+      theme: HeritageBotTheme.light,
+      home: const HeritageSplashScreen(
+        nextScreen: AuthGate(),
       ),
-      home: const SplashScreen(),
     );
   }
 }
+
+
+
 
 class PlaceImageService {
   static final Map<String, List<String>> _cache = {};
@@ -442,6 +432,67 @@ class PlaceImageService {
   }
 }
 
+String heritageBotTimestamp(int millis) {
+  if (millis <= 0) return 'Time unavailable';
+
+  final date = DateTime.fromMillisecondsSinceEpoch(millis).toLocal();
+  const months = <String>[
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
+  final hour12 = date.hour == 0
+      ? 12
+      : date.hour > 12
+          ? date.hour - 12
+          : date.hour;
+  final minute = date.minute.toString().padLeft(2, '0');
+  final period = date.hour >= 12 ? 'PM' : 'AM';
+
+  return '${months[date.month - 1]} ${date.day}, ${date.year} • '
+      '$hour12:$minute $period';
+}
+
+String heritageLearningTakeaway(HeritagePlace site) {
+  switch (site.id) {
+    case 'casa_gorordo':
+      return 'Learn how a Cebuano household lived during the Spanish colonial period and how preserved furniture, objects, and domestic spaces help explain everyday life in old Cebu.';
+    case 'cebu_heritage_monument':
+      return 'Learn how major people, events, and symbols from Cebu history can be understood through a single large sculptural tableau in Pari-an.';
+    case 'fort_san_pedro':
+      return 'Learn how colonial-era military defenses were built and used in Cebu, and how a surviving fort can help visitors understand the city’s changing historical landscape.';
+    case 'uclm':
+      return 'This location is included only for development and geolocation testing. It is not part of the three official heritage sites covered by the study.';
+    default:
+      return 'Use the verified historical information above to understand what makes this place significant and how its surviving features connect to local history.';
+  }
+}
+
+String heritageVisitReason(HeritagePlace site) {
+  switch (site.id) {
+    case 'casa_gorordo':
+      return 'It gives visitors a more personal view of history by connecting heritage architecture and preserved household objects with the everyday life of a Cebuano family.';
+    case 'cebu_heritage_monument':
+      return 'Its visual storytelling makes several parts of Cebu history easier to recognize in one place, making it useful for first-time visitors and students.';
+    case 'fort_san_pedro':
+      return 'Visitors can experience a preserved defensive structure directly instead of learning about colonial military history only through text or pictures.';
+    case 'uclm':
+      return 'Use this site only when testing HeritageBot location and navigation features.';
+    default:
+      return 'Visit to connect the verified historical information with the real place, its surroundings, and the physical details that still remain today.';
+  }
+}
+
 class GeminiStoryService {
   Future<String> generateContextAwareStory({
     required HeritagePlace place,
@@ -476,7 +527,9 @@ class GeminiStoryService {
 
     final targetLanguage = preferredLanguage.storyInstruction;
 
-    final knowledgeBase = KnowledgeBaseService(geminiApiKey: geminiApiKey);
+    final knowledgeBase = KnowledgeBaseService(
+      geminiApiKey: geminiApiKey,
+    );
 
     final ragResult = await knowledgeBase.retrieveForSite(
       place: place,
@@ -597,7 +650,9 @@ Content requirements:
         preferredLanguage,
       );
     } catch (error) {
-      debugPrint('Gemini narrative generation error: $error');
+      debugPrint(
+        'Gemini narrative generation error: $error',
+      );
       return _fallbackStory(
         place,
         distanceMeters,
@@ -624,17 +679,14 @@ Content requirements:
     }
 
     if (geminiApiKey.isEmpty) {
-      throw Exception(
-        'The translation service is unavailable because the Gemini API key is missing.',
-      );
+      throw Exception('The translation service is unavailable because the Gemini API key is missing.');
     }
 
     final uri = Uri.parse(
       'https://generativelanguage.googleapis.com/v1beta/models/$geminiModel:generateContent',
     );
 
-    final prompt =
-        '''
+    final prompt = '''
 You are the translation component of HeritageBot, an AI-based historical narrative generator.
 
 Translate the heritage narrative below from ${sourceLanguage.storyInstruction} into ${targetLanguage.storyInstruction}.
@@ -667,7 +719,10 @@ $cleanedNarrative
                   ],
                 },
               ],
-              'generationConfig': {'temperature': 0.15, 'maxOutputTokens': 900},
+              'generationConfig': {
+                'temperature': 0.15,
+                'maxOutputTokens': 900,
+              },
             }),
           )
           .timeout(const Duration(seconds: 25));
@@ -676,22 +731,17 @@ $cleanedNarrative
         debugPrint(
           'Gemini narrative translation failed: HTTP ${response.statusCode} ${response.body}',
         );
-        throw Exception(
-          'HeritageBot could not translate the narrative right now. Please try again.',
-        );
+        throw Exception('HeritageBot could not translate the narrative right now. Please try again.');
       }
 
       final data = jsonDecode(response.body);
-      final translatedText =
-          data['candidates']?[0]?['content']?['parts']?[0]?['text'];
+      final translatedText = data['candidates']?[0]?['content']?['parts']?[0]?['text'];
 
       if (translatedText is String && translatedText.trim().isNotEmpty) {
         return translatedText.trim();
       }
 
-      throw Exception(
-        'HeritageBot did not receive a translated narrative. Please try again.',
-      );
+      throw Exception('HeritageBot did not receive a translated narrative. Please try again.');
     } catch (error) {
       debugPrint('Gemini narrative translation error: $error');
 
@@ -699,9 +749,7 @@ $cleanedNarrative
         rethrow;
       }
 
-      throw Exception(
-        'HeritageBot could not translate the narrative right now. Please try again.',
-      );
+      throw Exception('HeritageBot could not translate the narrative right now. Please try again.');
     }
   }
 
@@ -926,6 +974,8 @@ $memoryLine''';
   }
 }
 
+
+
 class LocationService {
   Future<void> ensurePermission() async {
     final enabled = await Geolocator.isLocationServiceEnabled();
@@ -989,75 +1039,6 @@ class LocationService {
   }
 }
 
-class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
-
-  @override
-  State<SplashScreen> createState() => _SplashScreenState();
-}
-
-class _SplashScreenState extends State<SplashScreen> {
-  @override
-  void initState() {
-    super.initState();
-
-    Future.delayed(const Duration(seconds: 2), () {
-      if (!mounted) return;
-
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const AuthGate()),
-      );
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.brown,
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [AppColors.deepBrown, AppColors.brown, AppColors.clay],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.travel_explore_rounded, size: 92, color: AppColors.gold),
-            SizedBox(height: 18),
-            Text(
-              'HeritageBot',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
-                fontSize: 40,
-              ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'AI-Based Historical Narrative\nand Memory Companion',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white70,
-                height: 1.4,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            SizedBox(height: 34),
-            CircularProgressIndicator(color: AppColors.gold),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -1108,7 +1089,7 @@ class AuthGate extends StatelessWidget {
 
             switch (profile.role) {
               case UserRoles.admin:
-                return AdminDashboardScreen(profile: profile);
+                return AdminShell(profile: profile);
               case UserRoles.communityContributor:
                 return const MainShell(
                   userRole: UserRoles.communityContributor,
@@ -1152,7 +1133,10 @@ class RoleLoadErrorScreen extends StatelessWidget {
                 'HeritageBot could not load your account role from Cloud Firestore. Check your internet connection and try again.',
           ),
           const SizedBox(height: 12),
-          Text(message, style: const TextStyle(color: Colors.black54)),
+          Text(
+            message,
+            style: const TextStyle(color: Colors.black54),
+          ),
           const SizedBox(height: 20),
           ElevatedButton.icon(
             onPressed: () async {
@@ -1370,7 +1354,8 @@ class _ContributorDashboardScreenState
     extends State<ContributorDashboardScreen> {
   final CommunitySubmissionService _submissionService =
       CommunitySubmissionService();
-  final CommunityMediaService _mediaService = CommunityMediaService();
+  final CommunityMediaService _mediaService =
+      CommunityMediaService();
 
   late Future<List<CommunitySubmission>> _submissionsFuture;
 
@@ -1392,7 +1377,9 @@ class _ContributorDashboardScreenState
   Future<void> _openSubmitScreen() async {
     final created = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (_) => const SubmitCommunityStoryScreen()),
+      MaterialPageRoute(
+        builder: (_) => const SubmitCommunityStoryScreen(),
+      ),
     );
 
     if (created == true && mounted) {
@@ -1404,7 +1391,9 @@ class _ContributorDashboardScreenState
     final updated = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => EditCommunityStoryScreen(submission: submission),
+        builder: (_) => EditCommunityStoryScreen(
+          submission: submission,
+        ),
       ),
     );
 
@@ -1543,17 +1532,7 @@ class _ContributorDashboardScreenState
                   subtitle:
                       'Submit local heritage stories for administrator review and track whether they are Pending, Approved, or Rejected.',
                 ),
-                const SizedBox(height: 18),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _openSubmitScreen,
-                    icon: const Icon(Icons.history_edu_rounded),
-                    label: const Text('Submit Heritage Story'),
-                    style: mainButtonStyle(),
-                  ),
-                ),
-                const SizedBox(height: 22),
+                const SizedBox(height: 14),
                 const SectionTitle(
                   title: 'My Submissions',
                   subtitle:
@@ -1565,7 +1544,7 @@ class _ContributorDashboardScreenState
                     icon: Icons.inbox_rounded,
                     title: 'No Submissions Yet',
                     body:
-                        'Tap Submit Heritage Story to send your first local heritage contribution.',
+                        'Tap the + Submit Story button to send your first local heritage contribution.',
                   )
                 else
                   ...submissions.map(
@@ -1692,9 +1671,7 @@ class _ContributorDashboardScreenState
                                   TextButton.icon(
                                     onPressed: () =>
                                         _deleteSubmission(submission),
-                                    icon: const Icon(
-                                      Icons.delete_outline_rounded,
-                                    ),
+                                    icon: const Icon(Icons.delete_outline_rounded),
                                     label: const Text('Delete'),
                                   ),
                                 ],
@@ -1717,14 +1694,18 @@ class _ContributorDashboardScreenState
 class EditCommunityStoryScreen extends StatefulWidget {
   final CommunitySubmission submission;
 
-  const EditCommunityStoryScreen({super.key, required this.submission});
+  const EditCommunityStoryScreen({
+    super.key,
+    required this.submission,
+  });
 
   @override
   State<EditCommunityStoryScreen> createState() =>
       _EditCommunityStoryScreenState();
 }
 
-class _EditCommunityStoryScreenState extends State<EditCommunityStoryScreen> {
+class _EditCommunityStoryScreenState
+    extends State<EditCommunityStoryScreen> {
   final CommunitySubmissionService _submissionService =
       CommunitySubmissionService();
   final CommunityMediaService _mediaService = CommunityMediaService();
@@ -1746,16 +1727,22 @@ class _EditCommunityStoryScreenState extends State<EditCommunityStoryScreen> {
   void initState() {
     super.initState();
 
-    titleController = TextEditingController(text: widget.submission.title);
-    storyController = TextEditingController(text: widget.submission.story);
+    titleController = TextEditingController(
+      text: widget.submission.title,
+    );
+    storyController = TextEditingController(
+      text: widget.submission.story,
+    );
 
-    final hasExistingPlace = heritagePlaces.any(
+    final hasExistingPlace = officialHeritagePlaces.any(
       (place) => place.id == widget.submission.heritagePlaceId,
     );
 
     selectedPlaceId = hasExistingPlace
         ? widget.submission.heritagePlaceId
-        : (heritagePlaces.isNotEmpty ? heritagePlaces.first.id : null);
+        : (officialHeritagePlaces.isNotEmpty
+            ? officialHeritagePlaces.first.id
+            : null);
 
     existingImageUrls = List<String>.of(widget.submission.imageUrls);
     existingVideoUrls = List<String>.of(widget.submission.videoUrls);
@@ -1774,24 +1761,30 @@ class _EditCommunityStoryScreenState extends State<EditCommunityStoryScreen> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
   }
 
   Future<void> _pickEditPhotos() async {
     if (saving) return;
 
-    final remaining =
-        CommunityMediaService.maxImages -
+    final remaining = CommunityMediaService.maxImages -
         existingImageUrls.length -
         newImages.length;
 
     if (remaining <= 0) {
-      _showMessage('This submission already has the maximum number of photos.');
+      _showMessage(
+        'This submission already has the maximum number of photos.',
+      );
       return;
     }
 
-    final picked = await _imagePicker.pickMultiImage(imageQuality: 88);
+    final picked = await _imagePicker.pickMultiImage(
+      imageQuality: 88,
+    );
 
     if (picked.isEmpty || !mounted) return;
 
@@ -1803,13 +1796,14 @@ class _EditCommunityStoryScreenState extends State<EditCommunityStoryScreen> {
   Future<void> _pickEditVideo() async {
     if (saving) return;
 
-    final remaining =
-        CommunityMediaService.maxVideos -
+    final remaining = CommunityMediaService.maxVideos -
         existingVideoUrls.length -
         newVideos.length;
 
     if (remaining <= 0) {
-      _showMessage('This submission already has the maximum number of videos.');
+      _showMessage(
+        'This submission already has the maximum number of videos.',
+      );
       return;
     }
 
@@ -1839,19 +1833,19 @@ class _EditCommunityStoryScreenState extends State<EditCommunityStoryScreen> {
       return;
     }
 
-    if (title.length < 3) {
-      _showMessage('Please enter a story title.');
+    if (title.length < 5) {
+      _showMessage('Please enter a clear story title with at least 5 characters.');
       return;
     }
 
-    if (story.length < 20) {
+    if (story.length < 80) {
       _showMessage(
-        'Please write a more complete heritage story before saving.',
+        'Please write at least 80 characters of meaningful heritage content before saving.',
       );
       return;
     }
 
-    final place = heritagePlaces.firstWhere(
+    final place = officialHeritagePlaces.firstWhere(
       (item) => item.id == selectedPlaceId,
     );
 
@@ -1883,8 +1877,14 @@ class _EditCommunityStoryScreenState extends State<EditCommunityStoryScreen> {
         heritagePlaceName: place.name,
         title: title,
         story: story,
-        imageUrls: [...existingImageUrls, ...uploadedImages],
-        videoUrls: [...existingVideoUrls, ...uploadedVideos],
+        imageUrls: [
+          ...existingImageUrls,
+          ...uploadedImages,
+        ],
+        videoUrls: [
+          ...existingVideoUrls,
+          ...uploadedVideos,
+        ],
       );
 
       if (!mounted) return;
@@ -1919,7 +1919,9 @@ class _EditCommunityStoryScreenState extends State<EditCommunityStoryScreen> {
     final submission = widget.submission;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Edit Submission')),
+      appBar: AppBar(
+        title: const Text('Edit Submission'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(18),
         children: [
@@ -1936,11 +1938,14 @@ class _EditCommunityStoryScreenState extends State<EditCommunityStoryScreen> {
               label: 'Heritage Place',
               icon: Icons.place_rounded,
             ),
-            items: heritagePlaces
+            items: officialHeritagePlaces
                 .map(
                   (place) => DropdownMenuItem<String>(
                     value: place.id,
-                    child: Text(place.name, overflow: TextOverflow.ellipsis),
+                    child: Text(
+                      place.name,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 )
                 .toList(),
@@ -1970,7 +1975,9 @@ class _EditCommunityStoryScreenState extends State<EditCommunityStoryScreen> {
             decoration: inputDecoration(
               label: 'Heritage Story',
               icon: Icons.history_edu_rounded,
-            ).copyWith(alignLabelWithHint: true),
+            ).copyWith(
+              alignLabelWithHint: true,
+            ),
           ),
           const SizedBox(height: 18),
           const SectionTitle(
@@ -2121,7 +2128,9 @@ class _EditCommunityStoryScreenState extends State<EditCommunityStoryScreen> {
                     ),
                   )
                 : const Icon(Icons.save_rounded),
-            label: Text(saving ? 'Saving...' : 'Save Changes'),
+            label: Text(
+              saving ? 'Saving...' : 'Save Changes',
+            ),
             style: mainButtonStyle(),
           ),
         ],
@@ -2134,14 +2143,21 @@ class _AttachmentCount extends StatelessWidget {
   final IconData icon;
   final String label;
 
-  const _AttachmentCount({required this.icon, required this.label});
+  const _AttachmentCount({
+    required this.icon,
+    required this.label,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 18, color: AppColors.brown),
+        Icon(
+          icon,
+          size: 18,
+          color: AppColors.brown,
+        ),
         const SizedBox(width: 5),
         Text(
           label,
@@ -2187,8 +2203,8 @@ class _SubmitCommunityStoryScreenState
   void initState() {
     super.initState();
 
-    if (heritagePlaces.isNotEmpty) {
-      selectedPlaceId = heritagePlaces.first.id;
+    if (officialHeritagePlaces.isNotEmpty) {
+      selectedPlaceId = officialHeritagePlaces.first.id;
     }
 
     _loadContributorName();
@@ -2215,7 +2231,8 @@ class _SubmitCommunityStoryScreenState
   Future<void> _pickPhotos() async {
     if (submitting) return;
 
-    final remaining = CommunityMediaService.maxImages - selectedImages.length;
+    final remaining =
+        CommunityMediaService.maxImages - selectedImages.length;
 
     if (remaining <= 0) {
       _showMessage(
@@ -2225,7 +2242,9 @@ class _SubmitCommunityStoryScreenState
     }
 
     try {
-      final picked = await _imagePicker.pickMultiImage(imageQuality: 88);
+      final picked = await _imagePicker.pickMultiImage(
+        imageQuality: 88,
+      );
 
       if (picked.isEmpty || !mounted) return;
 
@@ -2289,19 +2308,19 @@ class _SubmitCommunityStoryScreenState
       return;
     }
 
-    if (title.length < 3) {
-      _showMessage('Please enter a story title.');
+    if (title.length < 5) {
+      _showMessage('Please enter a clear story title with at least 5 characters.');
       return;
     }
 
-    if (story.length < 20) {
+    if (story.length < 80) {
       _showMessage(
-        'Please write a more complete heritage story before submitting.',
+        'Please write at least 80 characters of meaningful heritage content before submitting.',
       );
       return;
     }
 
-    final place = heritagePlaces.firstWhere(
+    final place = officialHeritagePlaces.firstWhere(
       (item) => item.id == selectedPlaceId,
     );
 
@@ -2367,14 +2386,19 @@ class _SubmitCommunityStoryScreenState
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Heritage story submitted for administrator review.'),
+          content: Text(
+            'Heritage story submitted for administrator review.',
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
 
       Navigator.pop(context, true);
     } catch (e) {
-      await _mediaService.deleteMediaUrls([...imageUrls, ...videoUrls]);
+      await _mediaService.deleteMediaUrls([
+        ...imageUrls,
+        ...videoUrls,
+      ]);
 
       if (!mounted) return;
 
@@ -2400,7 +2424,10 @@ class _SubmitCommunityStoryScreenState
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
   }
 
@@ -2414,7 +2441,7 @@ class _SubmitCommunityStoryScreenState
           const SectionTitle(
             title: 'Community Heritage Story',
             subtitle:
-                'Share a local story or cultural memory with optional photos and videos. It will remain Pending until reviewed by the HeritageBot Administrator.',
+                'Share a meaningful local story, cultural memory, or heritage information about one of the three official HeritageBot sites. It will remain Pending until reviewed by the HeritageBot Administrator.',
           ),
           const SizedBox(height: 18),
           DropdownButtonFormField<String>(
@@ -2424,11 +2451,14 @@ class _SubmitCommunityStoryScreenState
               label: 'Heritage Place',
               icon: Icons.place_rounded,
             ),
-            items: heritagePlaces
+            items: officialHeritagePlaces
                 .map(
                   (place) => DropdownMenuItem<String>(
                     value: place.id,
-                    child: Text(place.name, overflow: TextOverflow.ellipsis),
+                    child: Text(
+                      place.name,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 )
                 .toList(),
@@ -2455,15 +2485,14 @@ class _SubmitCommunityStoryScreenState
             minLines: 8,
             maxLines: 14,
             textCapitalization: TextCapitalization.sentences,
-            decoration:
-                inputDecoration(
-                  label: 'Heritage Story',
-                  icon: Icons.history_edu_rounded,
-                ).copyWith(
-                  alignLabelWithHint: true,
-                  hintText:
-                      'Write the local story, cultural memory, oral history, or heritage information you want to contribute.',
-                ),
+            decoration: inputDecoration(
+              label: 'Heritage Story',
+              icon: Icons.history_edu_rounded,
+            ).copyWith(
+              alignLabelWithHint: true,
+              hintText:
+                  'Write a meaningful story or cultural memory that is clearly related to the selected heritage site. Explain what happened, what people can learn, or why the place matters.',
+            ),
           ),
           const SizedBox(height: 18),
           const SectionTitle(
@@ -2570,7 +2599,9 @@ class _SubmitCommunityStoryScreenState
                     onPressed: submitting
                         ? null
                         : () {
-                            setState(() => selectedVideos.removeAt(index));
+                            setState(
+                              () => selectedVideos.removeAt(index),
+                            );
                           },
                     icon: const Icon(Icons.close_rounded),
                   ),
@@ -2622,96 +2653,112 @@ class _SubmitCommunityStoryScreenState
   }
 }
 
+
+
+class AdminShell extends StatefulWidget {
+  final UserProfile profile;
+
+  const AdminShell({
+    super.key,
+    required this.profile,
+  });
+
+  @override
+  State<AdminShell> createState() => _AdminShellState();
+}
+
+class _AdminShellState extends State<AdminShell> {
+  int currentIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final screens = <Widget>[
+      const AdminAnalyticsScreen(),
+      AdminDashboardScreen(profile: widget.profile),
+      const AdminHeritageSitesScreen(),
+      const AdminKnowledgeBaseScreen(),
+      const AdminSystemSettingsScreen(),
+    ];
+
+    return Scaffold(
+      body: IndexedStack(
+        index: currentIndex,
+        children: screens,
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: currentIndex,
+        onDestinationSelected: (index) {
+          setState(() => currentIndex = index);
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.dashboard_rounded),
+            label: 'Summary',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.rate_review_rounded),
+            label: 'Review',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.location_city_rounded),
+            label: 'Sites',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.hub_rounded),
+            label: 'AI Base',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.settings_rounded),
+            label: 'Settings',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class AdminDashboardScreen extends StatefulWidget {
   final UserProfile profile;
 
-  const AdminDashboardScreen({super.key, required this.profile});
+  const AdminDashboardScreen({
+    super.key,
+    required this.profile,
+  });
 
   @override
-  State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
+  State<AdminDashboardScreen> createState() =>
+      _AdminDashboardScreenState();
 }
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   final CommunitySubmissionService _submissionService =
       CommunitySubmissionService();
-  final AdminAnalyticsService _analyticsService = AdminAnalyticsService();
-  final AdminReportService _reportService = AdminReportService();
 
   late Future<List<CommunitySubmission>> _submissionsFuture;
-  late Future<AdminAnalyticsSnapshot> _analyticsFuture;
-
   String selectedFilter = 'all';
-  bool _generatingReport = false;
 
   @override
   void initState() {
     super.initState();
     _loadSubmissions();
-    _loadAnalytics();
   }
 
   void _loadSubmissions() {
     _submissionsFuture = _submissionService.getAllSubmissions();
   }
 
-  void _loadAnalytics() {
-    _analyticsFuture = _analyticsService.loadSnapshot();
-  }
-
   Future<void> _refresh() async {
-    setState(() {
-      _loadSubmissions();
-      _loadAnalytics();
-    });
-
-    await Future.wait<dynamic>([_submissionsFuture, _analyticsFuture]);
-  }
-
-  Future<void> _generateReport() async {
-    if (_generatingReport) {
-      return;
-    }
-
-    setState(() => _generatingReport = true);
-
-    try {
-      final analytics = await _analyticsService.loadSnapshot();
-
-      await _reportService.generateSystemReport(analytics);
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(
-            content: Text('HeritageBot PDF report generated successfully.'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-    } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: Text('Could not generate report: ${e.toString()}'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-    } finally {
-      if (mounted) {
-        setState(() => _generatingReport = false);
-      }
-    }
+    setState(_loadSubmissions);
+    await _submissionsFuture;
   }
 
   Future<void> _openSubmission(CommunitySubmission submission) async {
     final changed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => AdminReviewSubmissionScreen(submission: submission),
+        builder: (_) => AdminReviewSubmissionScreen(
+          submission: submission,
+        ),
       ),
     );
 
@@ -2720,17 +2767,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
   }
 
-  List<CommunitySubmission> _filtered(List<CommunitySubmission> submissions) {
-    if (selectedFilter == 'all') {
-      return submissions;
-    }
+  List<CommunitySubmission> _filtered(
+    List<CommunitySubmission> submissions,
+  ) {
+    if (selectedFilter == 'all') return submissions;
 
     return submissions
         .where((submission) => submission.status == selectedFilter)
         .toList();
   }
 
-  int _countStatus(List<CommunitySubmission> submissions, String status) {
+  int _countStatus(
+    List<CommunitySubmission> submissions,
+    String status,
+  ) {
     return submissions
         .where((submission) => submission.status == status)
         .length;
@@ -2750,25 +2800,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final displayName = widget.profile.fullName.isEmpty
-        ? 'Administrator'
-        : widget.profile.fullName;
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('HeritageBot Admin'),
+        title: const Text('Review Community Contributions'),
         actions: [
           IconButton(
             tooltip: 'Refresh',
             onPressed: _refresh,
             icon: const Icon(Icons.refresh_rounded),
-          ),
-          IconButton(
-            tooltip: 'Logout',
-            onPressed: () async {
-              await AuthService().logout();
-            },
-            icon: const Icon(Icons.logout_rounded),
           ),
         ],
       ),
@@ -2827,12 +2866,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(18, 18, 18, 40),
               children: [
-                SectionTitle(
-                  title: 'Welcome, $displayName',
+                const SectionTitle(
+                  title: 'Review Community Contributions',
                   subtitle:
-                      'Review community-contributed heritage stories and provide approval, rejection, and feedback.',
+                      'Read submitted heritage stories, review attached media, and approve or reject each contribution.',
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 16),
                 Wrap(
                   spacing: 10,
                   runSpacing: 10,
@@ -2860,112 +2899,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   ],
                 ),
                 const SizedBox(height: 18),
-                FutureBuilder<AdminAnalyticsSnapshot>(
-                  future: _analyticsFuture,
-                  builder: (context, analyticsSnapshot) {
-                    if (analyticsSnapshot.connectionState ==
-                        ConnectionState.waiting) {
-                      return const InfoCard(
-                        icon: Icons.insights_rounded,
-                        title: 'Loading System Summary',
-                        body:
-                            'HeritageBot is calculating current users, heritage sites, and submission statistics.',
-                      );
-                    }
-
-                    if (analyticsSnapshot.hasError ||
-                        !analyticsSnapshot.hasData) {
-                      return const InfoCard(
-                        icon: Icons.info_outline_rounded,
-                        title: 'System Summary Unavailable',
-                        body:
-                            'Submission review is still available. Pull down to refresh the administrator dashboard.',
-                      );
-                    }
-
-                    final analytics = analyticsSnapshot.data!;
-
-                    return Card(
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 10,
-                        ),
-                        leading: const Icon(
-                          Icons.insights_rounded,
-                          color: AppColors.brown,
-                        ),
-                        title: const Text(
-                          'System Summary & Analytics',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            color: AppColors.deepBrown,
-                          ),
-                        ),
-                        subtitle: Text(
-                          '${analytics.totalUsers} users • '
-                          '${analytics.totalSites} heritage sites • '
-                          '${analytics.totalSubmissions} submissions',
-                        ),
-                        trailing: const Icon(Icons.chevron_right_rounded),
-                        onTap: () async {
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const AdminAnalyticsScreen(),
-                            ),
-                          );
-
-                          if (mounted) {
-                            setState(_loadAnalytics);
-                          }
-                        },
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 10),
-                Card(
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 10,
-                    ),
-                    leading: _generatingReport
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(strokeWidth: 2.3),
-                          )
-                        : const Icon(
-                            Icons.picture_as_pdf_rounded,
-                            color: AppColors.brown,
-                          ),
-                    title: const Text(
-                      'Generate PDF Report',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w900,
-                        color: AppColors.deepBrown,
-                      ),
-                    ),
-                    subtitle: Text(
-                      _generatingReport
-                          ? 'Building the current HeritageBot system report...'
-                          : 'Create an administrator PDF with user, site, analytics, and submission summaries.',
-                    ),
-                    trailing: _generatingReport
-                        ? null
-                        : const Icon(Icons.chevron_right_rounded),
-                    onTap: _generatingReport ? null : _generateReport,
-                  ),
-                ),
-                const SizedBox(height: 22),
-                const SectionTitle(
-                  title: 'Review Community Contributions',
-                  subtitle:
-                      'Tap a submission to read the full story, approve or reject it, and add administrator feedback.',
-                ),
-                const SizedBox(height: 12),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -2993,8 +2926,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ChoiceChip(
                         label: const Text('Approved'),
                         selected:
-                            selectedFilter ==
-                            CommunitySubmissionStatus.approved,
+                            selectedFilter == CommunitySubmissionStatus.approved,
                         onSelected: (_) {
                           setState(
                             () => selectedFilter =
@@ -3006,8 +2938,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ChoiceChip(
                         label: const Text('Rejected'),
                         selected:
-                            selectedFilter ==
-                            CommunitySubmissionStatus.rejected,
+                            selectedFilter == CommunitySubmissionStatus.rejected,
                         onSelected: (_) {
                           setState(
                             () => selectedFilter =
@@ -3076,7 +3007,28 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 12),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.schedule_rounded,
+                                    size: 15,
+                                    color: Colors.black45,
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    heritageBotTimestamp(
+                                      submission.createdAtMillis,
+                                    ),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.black54,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
                               Text(
                                 'Contributor: ${submission.contributorName}',
                                 style: const TextStyle(
@@ -3086,7 +3038,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                               if (submission.contributorEmail.isNotEmpty)
                                 Text(
                                   submission.contributorEmail,
-                                  style: const TextStyle(color: Colors.black54),
+                                  style: const TextStyle(
+                                    color: Colors.black54,
+                                  ),
                                 ),
                               const SizedBox(height: 10),
                               Text(
@@ -3122,170 +3076,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ),
                     ),
                   ),
-                const SizedBox(height: 12),
-                Card(
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    leading: const Icon(
-                      Icons.people_alt_rounded,
-                      color: AppColors.brown,
-                    ),
-                    title: const Text(
-                      'Manage Users',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w900,
-                        color: AppColors.deepBrown,
-                      ),
-                    ),
-                    subtitle: const Text(
-                      'Search users, view account details, and manage account status.',
-                    ),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const AdminUsersScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                Card(
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    leading: const Icon(
-                      Icons.location_city_rounded,
-                      color: AppColors.brown,
-                    ),
-                    title: const Text(
-                      'Manage Heritage Sites',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w900,
-                        color: AppColors.deepBrown,
-                      ),
-                    ),
-                    subtitle: const Text(
-                      'Add, edit, activate, deactivate, or delete Firestore heritage-site records.',
-                    ),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () async {
-                      await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const AdminHeritageSitesScreen(),
-                        ),
-                      );
-
-                      if (mounted) {
-                        setState(() {});
-                      }
-                    },
-                  ),
-                ),
-                Card(
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    leading: const Icon(
-                      Icons.hub_rounded,
-                      color: AppColors.brown,
-                    ),
-                    title: const Text(
-                      'Manage AI Knowledge Base',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w900,
-                        color: AppColors.deepBrown,
-                      ),
-                    ),
-                    subtitle: const Text(
-                      'Add verified historical data, generate embeddings, sync approved stories, and inspect vector status.',
-                    ),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const AdminKnowledgeBaseScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                Card(
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    leading: const Icon(
-                      Icons.fact_check_rounded,
-                      color: AppColors.brown,
-                    ),
-                    title: const Text(
-                      'Monitor AI Narratives',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w900,
-                        color: AppColors.deepBrown,
-                      ),
-                    ),
-                    subtitle: const Text(
-                      'Review generated narratives and verify whether they align with retrieved historical sources.',
-                    ),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const AdminNarrativeMonitorScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                Card(
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    leading: const Icon(
-                      Icons.settings_rounded,
-                      color: AppColors.brown,
-                    ),
-                    title: const Text(
-                      'System Settings',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w900,
-                        color: AppColors.deepBrown,
-                      ),
-                    ),
-                    subtitle: const Text(
-                      'Manage supported languages, notification settings, and create a Firestore database backup.',
-                    ),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () async {
-                      await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const AdminSystemSettingsScreen(),
-                        ),
-                      );
-
-                      if (mounted) {
-                        setState(() {});
-                      }
-                    },
-                  ),
-                ),
               ],
             );
           },
@@ -3303,7 +3093,8 @@ class AdminSystemSettingsScreen extends StatefulWidget {
       _AdminSystemSettingsScreenState();
 }
 
-class _AdminSystemSettingsScreenState extends State<AdminSystemSettingsScreen> {
+class _AdminSystemSettingsScreenState
+    extends State<AdminSystemSettingsScreen> {
   final SystemSettingsService _settingsService = SystemSettingsService();
 
   late Future<HeritageBotSystemSettings> _settingsFuture;
@@ -3474,7 +3265,66 @@ class _AdminSystemSettingsScreenState extends State<AdminSystemSettingsScreen> {
               const SectionTitle(
                 title: 'Backup and System Settings',
                 subtitle:
-                    'Manage the supported languages and notification preference used by HeritageBot, then save the settings to Cloud Firestore.',
+                    'Manage administrator tools, supported languages, notification preferences, and database backup.',
+              ),
+              const SizedBox(height: 16),
+              Card(
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: const Icon(
+                        Icons.people_alt_rounded,
+                        color: AppColors.brown,
+                      ),
+                      title: const Text(
+                        'Manage Users',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.deepBrown,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'Search users, view account details, and manage account status.',
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const AdminUsersScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(
+                        Icons.fact_check_rounded,
+                        color: AppColors.brown,
+                      ),
+                      title: const Text(
+                        'Monitor AI Narratives',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.deepBrown,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'Review generated AI narratives and their retrieved historical sources.',
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                const AdminNarrativeMonitorScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 16),
               Card(
@@ -3485,7 +3335,10 @@ class _AdminSystemSettingsScreenState extends State<AdminSystemSettingsScreen> {
                     children: [
                       const Row(
                         children: [
-                          Icon(Icons.language_rounded, color: AppColors.brown),
+                          Icon(
+                            Icons.language_rounded,
+                            color: AppColors.brown,
+                          ),
                           SizedBox(width: 10),
                           Expanded(
                             child: Text(
@@ -3512,7 +3365,9 @@ class _AdminSystemSettingsScreenState extends State<AdminSystemSettingsScreen> {
                           controlAffinity: ListTileControlAffinity.leading,
                           title: Text(
                             language.name,
-                            style: const TextStyle(fontWeight: FontWeight.w800),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                           subtitle: language.code == 'en'
                               ? const Text('Required fallback language')
@@ -3587,7 +3442,10 @@ class _AdminSystemSettingsScreenState extends State<AdminSystemSettingsScreen> {
                     children: [
                       const Row(
                         children: [
-                          Icon(Icons.backup_rounded, color: AppColors.brown),
+                          Icon(
+                            Icons.backup_rounded,
+                            color: AppColors.brown,
+                          ),
                           SizedBox(width: 10),
                           Expanded(
                             child: Text(
@@ -3665,6 +3523,7 @@ class _AdminSystemSettingsScreenState extends State<AdminSystemSettingsScreen> {
   }
 }
 
+
 class AdminKnowledgeBaseScreen extends StatefulWidget {
   const AdminKnowledgeBaseScreen({super.key});
 
@@ -3673,7 +3532,8 @@ class AdminKnowledgeBaseScreen extends StatefulWidget {
       _AdminKnowledgeBaseScreenState();
 }
 
-class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
+class _AdminKnowledgeBaseScreenState
+    extends State<AdminKnowledgeBaseScreen> {
   late final KnowledgeBaseService _knowledgeBase;
 
   late Future<List<HistoricalContent>> _contentFuture;
@@ -3683,7 +3543,9 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
   @override
   void initState() {
     super.initState();
-    _knowledgeBase = KnowledgeBaseService(geminiApiKey: geminiApiKey);
+    _knowledgeBase = KnowledgeBaseService(
+      geminiApiKey: geminiApiKey,
+    );
     _reload();
   }
 
@@ -3702,7 +3564,10 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
   }
 
@@ -3721,7 +3586,8 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
         sites = List<HeritagePlace>.of(heritagePlaces);
       }
 
-      final created = await _knowledgeBase.initializeSiteFacts(sites);
+      final created =
+          await _knowledgeBase.initializeSiteFacts(sites);
 
       _message(
         created == 0
@@ -3731,7 +3597,9 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
 
       await _refresh();
     } catch (e) {
-      _message('Knowledge base initialization failed: ${e.toString()}');
+      _message(
+        'Knowledge base initialization failed: ${e.toString()}',
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -3751,12 +3619,11 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
     });
 
     try {
-      final approved = await CommunitySubmissionService()
-          .getApprovedSubmissions();
+      final approved =
+          await CommunitySubmissionService().getApprovedSubmissions();
 
-      final synced = await _knowledgeBase.syncApprovedCommunityStories(
-        approved,
-      );
+      final synced = await _knowledgeBase
+          .syncApprovedCommunityStories(approved);
 
       if (mounted) {
         setState(() {
@@ -3764,7 +3631,8 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
         });
       }
 
-      final rebuilt = await _knowledgeBase.rebuildAllEmbeddings();
+      final rebuilt =
+          await _knowledgeBase.rebuildAllEmbeddings();
 
       _message(
         'Knowledge base updated: $synced approved community stories synced and $rebuilt vector embeddings rebuilt.',
@@ -3772,7 +3640,9 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
 
       await _refresh();
     } catch (e) {
-      _message('Knowledge base update failed: ${e.toString()}');
+      _message(
+        'Knowledge base update failed: ${e.toString()}',
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -3783,7 +3653,9 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
     }
   }
 
-  Future<void> _openEditor({HistoricalContent? item}) async {
+  Future<void> _openEditor({
+    HistoricalContent? item,
+  }) async {
     var sites = await HeritageSiteService().getAllSites();
 
     if (sites.isEmpty) {
@@ -3795,7 +3667,10 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
     final changed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => HistoricalContentEditorScreen(sites: sites, item: item),
+        builder: (_) => HistoricalContentEditorScreen(
+          sites: sites,
+          item: item,
+        ),
       ),
     );
 
@@ -3805,19 +3680,22 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
   }
 
   Future<void> _delete(HistoricalContent item) async {
-    final confirmed =
-        await showDialog<bool>(
+    final confirmed = await showDialog<bool>(
           context: context,
           builder: (dialogContext) => AlertDialog(
             title: const Text('Delete Historical Data?'),
-            content: Text('Delete "${item.title}" from the AI knowledge base?'),
+            content: Text(
+              'Delete "${item.title}" from the AI knowledge base?',
+            ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
+                onPressed: () =>
+                    Navigator.pop(dialogContext, false),
                 child: const Text('Cancel'),
               ),
               FilledButton(
-                onPressed: () => Navigator.pop(dialogContext, true),
+                onPressed: () =>
+                    Navigator.pop(dialogContext, true),
                 child: const Text('Delete'),
               ),
             ],
@@ -3847,7 +3725,9 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.gold.withOpacity(0.25)),
+        border: Border.all(
+          color: AppColors.gold.withOpacity(0.25),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3895,8 +3775,11 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
       body: FutureBuilder<List<HistoricalContent>>(
         future: _contentFuture,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+          if (snapshot.connectionState ==
+              ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
           }
 
           if (snapshot.hasError) {
@@ -3919,7 +3802,12 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
           final status = _knowledgeBase.statusFrom(contents);
 
           return ListView(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 100),
+            padding: const EdgeInsets.fromLTRB(
+              18,
+              18,
+              18,
+              100,
+            ),
             children: [
               const SectionTitle(
                 title: 'Historical Knowledge Base',
@@ -3958,20 +3846,26 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
                 InfoCard(
                   icon: Icons.sync_rounded,
                   title: 'Updating Knowledge Base',
-                  body: workMessage.isEmpty ? 'Please wait...' : workMessage,
+                  body: workMessage.isEmpty
+                      ? 'Please wait...'
+                      : workMessage,
                 ),
               if (working) const SizedBox(height: 12),
               ElevatedButton.icon(
-                onPressed: working ? null : _initializeSiteFacts,
+                onPressed:
+                    working ? null : _initializeSiteFacts,
                 icon: const Icon(Icons.auto_awesome_rounded),
-                label: const Text('Initialize Current Site Facts'),
+                label:
+                    const Text('Initialize Current Site Facts'),
                 style: mainButtonStyle(),
               ),
               const SizedBox(height: 8),
               OutlinedButton.icon(
-                onPressed: working ? null : _updateKnowledgeBase,
+                onPressed:
+                    working ? null : _updateKnowledgeBase,
                 icon: const Icon(Icons.sync_rounded),
-                label: const Text('Update Knowledge Base'),
+                label:
+                    const Text('Update Knowledge Base'),
               ),
               const SizedBox(height: 8),
               InfoCard(
@@ -3994,11 +3888,13 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
               else
                 ...contents.map(
                   (item) => Card(
-                    margin: const EdgeInsets.only(bottom: 12),
+                    margin:
+                        const EdgeInsets.only(bottom: 12),
                     child: Padding(
                       padding: const EdgeInsets.all(15),
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
@@ -4007,15 +3903,18 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
                                   item.title,
                                   style: const TextStyle(
                                     fontSize: 16,
-                                    fontWeight: FontWeight.w900,
-                                    color: AppColors.deepBrown,
+                                    fontWeight:
+                                        FontWeight.w900,
+                                    color:
+                                        AppColors.deepBrown,
                                   ),
                                 ),
                               ),
                               Icon(
                                 item.hasEmbedding
                                     ? Icons.hub_rounded
-                                    : Icons.warning_amber_rounded,
+                                    : Icons
+                                        .warning_amber_rounded,
                                 color: item.hasEmbedding
                                     ? AppColors.brown
                                     : Colors.orange,
@@ -4035,7 +3934,8 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
                             item.content,
                             maxLines: 4,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(height: 1.4),
+                            style:
+                                const TextStyle(height: 1.4),
                           ),
                           const SizedBox(height: 8),
                           Text(
@@ -4058,19 +3958,29 @@ class _AdminKnowledgeBaseScreenState extends State<AdminKnowledgeBaseScreen> {
                           ),
                           const SizedBox(height: 8),
                           Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
+                            mainAxisAlignment:
+                                MainAxisAlignment.end,
                             children: [
                               TextButton.icon(
                                 onPressed: working
                                     ? null
-                                    : () => _openEditor(item: item),
-                                icon: const Icon(Icons.edit_rounded),
+                                    : () => _openEditor(
+                                          item: item,
+                                        ),
+                                icon: const Icon(
+                                  Icons.edit_rounded,
+                                ),
                                 label: const Text('Edit'),
                               ),
                               TextButton.icon(
-                                onPressed: working ? null : () => _delete(item),
-                                icon: const Icon(Icons.delete_outline_rounded),
-                                label: const Text('Delete'),
+                                onPressed: working
+                                    ? null
+                                    : () => _delete(item),
+                                icon: const Icon(
+                                  Icons.delete_outline_rounded,
+                                ),
+                                label:
+                                    const Text('Delete'),
                               ),
                             ],
                           ),
@@ -4123,20 +4033,27 @@ class _HistoricalContentEditorScreenState
   void initState() {
     super.initState();
 
-    _knowledgeBase = KnowledgeBaseService(geminiApiKey: geminiApiKey);
+    _knowledgeBase = KnowledgeBaseService(
+      geminiApiKey: geminiApiKey,
+    );
 
     final item = widget.item;
-    selectedSiteId =
-        item?.siteId ?? (widget.sites.isNotEmpty ? widget.sites.first.id : '');
+    selectedSiteId = item?.siteId ??
+        (widget.sites.isNotEmpty
+            ? widget.sites.first.id
+            : '');
     languageCode = item?.languageCode ?? 'en';
     isApproved = item?.isApproved ?? true;
 
-    titleController = TextEditingController(text: item?.title ?? '');
-    contentController = TextEditingController(text: item?.content ?? '');
+    titleController =
+        TextEditingController(text: item?.title ?? '');
+    contentController =
+        TextEditingController(text: item?.content ?? '');
     sourceTitleController = TextEditingController(
       text: item?.sourceTitle ?? '',
     );
-    sourceUrlController = TextEditingController(text: item?.sourceUrl ?? '');
+    sourceUrlController =
+        TextEditingController(text: item?.sourceUrl ?? '');
     categoryController = TextEditingController(
       text: item?.category ?? 'historical_record',
     );
@@ -4158,7 +4075,10 @@ class _HistoricalContentEditorScreenState
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
   }
 
@@ -4170,7 +4090,9 @@ class _HistoricalContentEditorScreenState
       return;
     }
 
-    final site = widget.sites.firstWhere((item) => item.id == selectedSiteId);
+    final site = widget.sites.firstWhere(
+      (item) => item.id == selectedSiteId,
+    );
 
     setState(() => saving = true);
 
@@ -4184,8 +4106,10 @@ class _HistoricalContentEditorScreenState
             siteName: site.name,
             title: titleController.text.trim(),
             content: contentController.text.trim(),
-            sourceTitle: sourceTitleController.text.trim(),
-            sourceUrl: sourceUrlController.text.trim(),
+            sourceTitle:
+                sourceTitleController.text.trim(),
+            sourceUrl:
+                sourceUrlController.text.trim(),
             category: categoryController.text.trim(),
             languageCode: languageCode,
             isApproved: isApproved,
@@ -4227,10 +4151,15 @@ class _HistoricalContentEditorScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(editing ? 'Edit Historical Data' : 'Add Historical Data'),
+        title: Text(
+          editing
+              ? 'Edit Historical Data'
+              : 'Add Historical Data',
+        ),
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 40),
+        padding:
+            const EdgeInsets.fromLTRB(18, 18, 18, 40),
         children: [
           const SectionTitle(
             title: 'Verified Historical Content',
@@ -4246,15 +4175,19 @@ class _HistoricalContentEditorScreenState
             ),
             items: widget.sites
                 .map(
-                  (site) =>
-                      DropdownMenuItem(value: site.id, child: Text(site.name)),
+                  (site) => DropdownMenuItem(
+                    value: site.id,
+                    child: Text(site.name),
+                  ),
                 )
                 .toList(),
             onChanged: saving
                 ? null
                 : (value) {
                     if (value != null) {
-                      setState(() => selectedSiteId = value);
+                      setState(
+                        () => selectedSiteId = value,
+                      );
                     }
                   },
           ),
@@ -4295,7 +4228,9 @@ class _HistoricalContentEditorScreenState
             decoration: inputDecoration(
               label: 'Source URL',
               icon: Icons.link_rounded,
-            ).copyWith(hintText: 'Optional URL'),
+            ).copyWith(
+              hintText: 'Optional URL',
+            ),
           ),
           const SizedBox(height: 14),
           TextField(
@@ -4314,8 +4249,14 @@ class _HistoricalContentEditorScreenState
               icon: Icons.language_rounded,
             ),
             items: const [
-              DropdownMenuItem(value: 'en', child: Text('English')),
-              DropdownMenuItem(value: 'fil', child: Text('Filipino')),
+              DropdownMenuItem(
+                value: 'en',
+                child: Text('English'),
+              ),
+              DropdownMenuItem(
+                value: 'fil',
+                child: Text('Filipino'),
+              ),
             ],
             onChanged: saving
                 ? null
@@ -4330,7 +4271,9 @@ class _HistoricalContentEditorScreenState
             contentPadding: EdgeInsets.zero,
             title: const Text(
               'Approved for RAG Retrieval',
-              style: TextStyle(fontWeight: FontWeight.w900),
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+              ),
             ),
             subtitle: const Text(
               'Only approved historical records can be retrieved as grounding context.',
@@ -4356,7 +4299,9 @@ class _HistoricalContentEditorScreenState
                   )
                 : const Icon(Icons.hub_rounded),
             label: Text(
-              saving ? 'Generating Embedding...' : 'Save & Generate Embedding',
+              saving
+                  ? 'Generating Embedding...'
+                  : 'Save & Generate Embedding',
             ),
             style: mainButtonStyle(),
           ),
@@ -4376,7 +4321,8 @@ class AdminNarrativeMonitorScreen extends StatefulWidget {
 
 class _AdminNarrativeMonitorScreenState
     extends State<AdminNarrativeMonitorScreen> {
-  final AiNarrativeService _service = AiNarrativeService();
+  final AiNarrativeService _service =
+      AiNarrativeService();
 
   late Future<List<AiNarrativeRecord>> _future;
   String filter = 'all';
@@ -4400,7 +4346,8 @@ class _AdminNarrativeMonitorScreenState
     final changed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => AdminNarrativeReviewScreen(record: record),
+        builder: (_) =>
+            AdminNarrativeReviewScreen(record: record),
       ),
     );
 
@@ -4424,8 +4371,11 @@ class _AdminNarrativeMonitorScreenState
       body: FutureBuilder<List<AiNarrativeRecord>>(
         future: _future,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+          if (snapshot.connectionState ==
+              ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
           }
 
           if (snapshot.hasError) {
@@ -4435,7 +4385,8 @@ class _AdminNarrativeMonitorScreenState
                 const InfoCard(
                   icon: Icons.cloud_off_rounded,
                   title: 'Could Not Load AI Narratives',
-                  body: 'Publish the Step 17 Firestore rules, then refresh.',
+                  body:
+                      'Publish the Step 17 Firestore rules, then refresh.',
                 ),
                 const SizedBox(height: 10),
                 Text(snapshot.error.toString()),
@@ -4446,10 +4397,15 @@ class _AdminNarrativeMonitorScreenState
           final records = snapshot.data ?? const [];
           final shown = filter == 'all'
               ? records
-              : records.where((item) => item.reviewStatus == filter).toList();
+              : records
+                    .where(
+                      (item) => item.reviewStatus == filter,
+                    )
+                    .toList();
 
           return ListView(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 40),
+            padding:
+                const EdgeInsets.fromLTRB(18, 18, 18, 40),
             children: [
               const SectionTitle(
                 title: 'AI Narrative Verification',
@@ -4470,31 +4426,44 @@ class _AdminNarrativeMonitorScreenState
                     ),
                     const SizedBox(width: 8),
                     ChoiceChip(
-                      label: const Text('Pending Review'),
-                      selected: filter == AiNarrativeReviewStatus.pendingReview,
+                      label:
+                          const Text('Pending Review'),
+                      selected: filter ==
+                          AiNarrativeReviewStatus
+                              .pendingReview,
                       onSelected: (_) {
                         setState(
-                          () => filter = AiNarrativeReviewStatus.pendingReview,
+                          () => filter =
+                              AiNarrativeReviewStatus
+                                  .pendingReview,
                         );
                       },
                     ),
                     const SizedBox(width: 8),
                     ChoiceChip(
                       label: const Text('Verified'),
-                      selected: filter == AiNarrativeReviewStatus.verified,
+                      selected: filter ==
+                          AiNarrativeReviewStatus.verified,
                       onSelected: (_) {
                         setState(
-                          () => filter = AiNarrativeReviewStatus.verified,
+                          () => filter =
+                              AiNarrativeReviewStatus
+                                  .verified,
                         );
                       },
                     ),
                     const SizedBox(width: 8),
                     ChoiceChip(
-                      label: const Text('Needs Review'),
-                      selected: filter == AiNarrativeReviewStatus.needsReview,
+                      label:
+                          const Text('Needs Review'),
+                      selected: filter ==
+                          AiNarrativeReviewStatus
+                              .needsReview,
                       onSelected: (_) {
                         setState(
-                          () => filter = AiNarrativeReviewStatus.needsReview,
+                          () => filter =
+                              AiNarrativeReviewStatus
+                                  .needsReview,
                         );
                       },
                     ),
@@ -4512,19 +4481,25 @@ class _AdminNarrativeMonitorScreenState
               else
                 ...shown.map(
                   (record) => Card(
-                    margin: const EdgeInsets.only(bottom: 12),
+                    margin:
+                        const EdgeInsets.only(bottom: 12),
                     child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
+                      contentPadding:
+                          const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 10,
                       ),
                       leading: Icon(
-                        record.reviewStatus == AiNarrativeReviewStatus.verified
+                        record.reviewStatus ==
+                                AiNarrativeReviewStatus
+                                    .verified
                             ? Icons.verified_rounded
                             : record.reviewStatus ==
-                                  AiNarrativeReviewStatus.needsReview
+                                  AiNarrativeReviewStatus
+                                      .needsReview
                             ? Icons.warning_amber_rounded
-                            : Icons.pending_actions_rounded,
+                            : Icons
+                                  .pending_actions_rounded,
                         color: AppColors.brown,
                       ),
                       title: Text(
@@ -4542,7 +4517,9 @@ class _AdminNarrativeMonitorScreenState
                         overflow: TextOverflow.ellipsis,
                       ),
                       isThreeLine: true,
-                      trailing: const Icon(Icons.chevron_right_rounded),
+                      trailing: const Icon(
+                        Icons.chevron_right_rounded,
+                      ),
                       onTap: () => _open(record),
                     ),
                   ),
@@ -4558,7 +4535,10 @@ class _AdminNarrativeMonitorScreenState
 class AdminNarrativeReviewScreen extends StatefulWidget {
   final AiNarrativeRecord record;
 
-  const AdminNarrativeReviewScreen({super.key, required this.record});
+  const AdminNarrativeReviewScreen({
+    super.key,
+    required this.record,
+  });
 
   @override
   State<AdminNarrativeReviewScreen> createState() =>
@@ -4567,12 +4547,15 @@ class AdminNarrativeReviewScreen extends StatefulWidget {
 
 class _AdminNarrativeReviewScreenState
     extends State<AdminNarrativeReviewScreen> {
-  final AiNarrativeService _service = AiNarrativeService();
+  final AiNarrativeService _service =
+      AiNarrativeService();
 
   bool saving = false;
   bool changed = false;
 
-  Future<String?> _reviewNote({required String title}) {
+  Future<String?> _reviewNote({
+    required String title,
+  }) {
     final controller = TextEditingController(
       text: widget.record.adminReviewNote,
     );
@@ -4587,17 +4570,21 @@ class _AdminNarrativeReviewScreenState
           maxLines: 6,
           decoration: const InputDecoration(
             labelText: 'Administrator Note',
-            hintText: 'Optional verification or correction note',
+            hintText:
+                'Optional verification or correction note',
           ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
+            onPressed: () =>
+                Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, controller.text.trim()),
+            onPressed: () => Navigator.pop(
+              dialogContext,
+              controller.text.trim(),
+            ),
             child: const Text('Save Review'),
           ),
         ],
@@ -4609,7 +4596,8 @@ class _AdminNarrativeReviewScreenState
     if (saving) return;
 
     final note = await _reviewNote(
-      title: status == AiNarrativeReviewStatus.verified
+      title: status ==
+              AiNarrativeReviewStatus.verified
           ? 'Mark Narrative Verified'
           : 'Mark Narrative Needs Review',
     );
@@ -4632,7 +4620,8 @@ class _AdminNarrativeReviewScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            status == AiNarrativeReviewStatus.verified
+            status ==
+                    AiNarrativeReviewStatus.verified
                 ? 'Narrative marked Verified.'
                 : 'Narrative marked Needs Review.',
           ),
@@ -4644,9 +4633,9 @@ class _AdminNarrativeReviewScreenState
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.toString())));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
     } finally {
       if (mounted) {
         setState(() => saving = false);
@@ -4658,13 +4647,18 @@ class _AdminNarrativeReviewScreenState
   Widget build(BuildContext context) {
     final record = widget.record;
     final date = record.createdAtMillis > 0
-        ? DateTime.fromMillisecondsSinceEpoch(record.createdAtMillis)
+        ? DateTime.fromMillisecondsSinceEpoch(
+            record.createdAtMillis,
+          )
         : null;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Verify AI Narrative')),
+      appBar: AppBar(
+        title: const Text('Verify AI Narrative'),
+      ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 40),
+        padding:
+            const EdgeInsets.fromLTRB(18, 18, 18, 40),
         children: [
           SectionTitle(
             title: record.siteName,
@@ -4709,7 +4703,9 @@ class _AdminNarrativeReviewScreenState
           ElevatedButton.icon(
             onPressed: saving
                 ? null
-                : () => _review(AiNarrativeReviewStatus.verified),
+                : () => _review(
+                      AiNarrativeReviewStatus.verified,
+                    ),
             icon: const Icon(Icons.verified_rounded),
             label: const Text('Mark Verified'),
             style: mainButtonStyle(),
@@ -4718,8 +4714,12 @@ class _AdminNarrativeReviewScreenState
           OutlinedButton.icon(
             onPressed: saving
                 ? null
-                : () => _review(AiNarrativeReviewStatus.needsReview),
-            icon: const Icon(Icons.warning_amber_rounded),
+                : () => _review(
+                      AiNarrativeReviewStatus
+                          .needsReview,
+                    ),
+            icon:
+                const Icon(Icons.warning_amber_rounded),
             label: const Text('Needs Review'),
           ),
         ],
@@ -4732,13 +4732,18 @@ class AdminAnalyticsScreen extends StatefulWidget {
   const AdminAnalyticsScreen({super.key});
 
   @override
-  State<AdminAnalyticsScreen> createState() => _AdminAnalyticsScreenState();
+  State<AdminAnalyticsScreen> createState() =>
+      _AdminAnalyticsScreenState();
 }
 
-class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
-  final AdminAnalyticsService _analyticsService = AdminAnalyticsService();
+class _AdminAnalyticsScreenState
+    extends State<AdminAnalyticsScreen> {
+  final AdminAnalyticsService _analyticsService =
+      AdminAnalyticsService();
+  final AdminReportService _reportService = AdminReportService();
 
   late Future<AdminAnalyticsSnapshot> _analyticsFuture;
+  bool _generatingReport = false;
 
   @override
   void initState() {
@@ -4755,6 +4760,43 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
     await _analyticsFuture;
   }
 
+  Future<void> _generateReport() async {
+    if (_generatingReport) return;
+
+    setState(() => _generatingReport = true);
+
+    try {
+      final analytics = await _analyticsService.loadSnapshot();
+      await _reportService.generateSystemReport(analytics);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('HeritageBot PDF report generated successfully.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('Could not generate report: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    } finally {
+      if (mounted) {
+        setState(() => _generatingReport = false);
+      }
+    }
+  }
+
   Widget _metricCard({
     required IconData icon,
     required String label,
@@ -4769,7 +4811,10 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
           children: [
             CircleAvatar(
               backgroundColor: AppColors.gold.withOpacity(0.22),
-              child: Icon(icon, color: AppColors.brown),
+              child: Icon(
+                icon,
+                color: AppColors.brown,
+              ),
             ),
             const SizedBox(width: 13),
             Expanded(
@@ -4787,12 +4832,17 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                   const SizedBox(height: 2),
                   Text(
                     label,
-                    style: const TextStyle(fontWeight: FontWeight.w900),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     subtitle,
-                    style: const TextStyle(color: Colors.black54, height: 1.3),
+                    style: const TextStyle(
+                      color: Colors.black54,
+                      height: 1.3,
+                    ),
                   ),
                 ],
               ),
@@ -4914,7 +4964,10 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
             const SizedBox(height: 4),
             Text(
               subtitle,
-              style: const TextStyle(color: Colors.black54, height: 1.35),
+              style: const TextStyle(
+                color: Colors.black54,
+                height: 1.35,
+              ),
             ),
             const SizedBox(height: 16),
             ...children,
@@ -4928,12 +4981,19 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('System Analytics'),
+        title: const Text('System Summary'),
         actions: [
           IconButton(
             tooltip: 'Refresh',
             onPressed: _refresh,
             icon: const Icon(Icons.refresh_rounded),
+          ),
+          IconButton(
+            tooltip: 'Logout',
+            onPressed: () async {
+              await AuthService().logout();
+            },
+            icon: const Icon(Icons.logout_rounded),
           ),
         ],
       ),
@@ -4942,9 +5002,11 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
         child: FutureBuilder<AdminAnalyticsSnapshot>(
           future: _analyticsFuture,
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
+            if (snapshot.connectionState ==
+                ConnectionState.waiting) {
               return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
+                physics:
+                    const AlwaysScrollableScrollPhysics(),
                 children: const [
                   SizedBox(height: 240),
                   Center(child: CircularProgressIndicator()),
@@ -4954,7 +5016,8 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
 
             if (snapshot.hasError || !snapshot.hasData) {
               return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
+                physics:
+                    const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(18),
                 children: [
                   const InfoCard(
@@ -4967,7 +5030,8 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                     const SizedBox(height: 10),
                     Text(
                       snapshot.error.toString(),
-                      style: const TextStyle(color: Colors.black54),
+                      style:
+                          const TextStyle(color: Colors.black54),
                     ),
                   ],
                 ],
@@ -4975,11 +5039,14 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
             }
 
             final analytics = snapshot.data!;
-            final approvalPercent = (analytics.approvalRate * 100).round();
+            final approvalPercent =
+                (analytics.approvalRate * 100).round();
 
             return ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 40),
+              physics:
+                  const AlwaysScrollableScrollPhysics(),
+              padding:
+                  const EdgeInsets.fromLTRB(18, 18, 18, 40),
               children: [
                 const SectionTitle(
                   title: 'System Summary',
@@ -5133,15 +5200,18 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                             style: TextStyle(color: Colors.black54),
                           ),
                         ]
-                      : List.generate(analytics.topViewedSites.length, (index) {
-                          final item = analytics.topViewedSites[index];
-                          return _rankingRow(
-                            rank: index + 1,
-                            label: item.siteName,
-                            value: item.count,
-                            suffix: item.count == 1 ? 'view' : 'views',
-                          );
-                        }),
+                      : List.generate(
+                          analytics.topViewedSites.length,
+                          (index) {
+                            final item = analytics.topViewedSites[index];
+                            return _rankingRow(
+                              rank: index + 1,
+                              label: item.siteName,
+                              value: item.count,
+                              suffix: item.count == 1 ? 'view' : 'views',
+                            );
+                          },
+                        ),
                 ),
                 _analyticsSection(
                   title: 'Most Bookmarked Heritage Sites',
@@ -5154,17 +5224,53 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                             style: TextStyle(color: Colors.black54),
                           ),
                         ]
-                      : List.generate(analytics.topBookmarkedSites.length, (
-                          index,
-                        ) {
-                          final item = analytics.topBookmarkedSites[index];
-                          return _rankingRow(
-                            rank: index + 1,
-                            label: item.siteName,
-                            value: item.count,
-                            suffix: item.count == 1 ? 'bookmark' : 'bookmarks',
-                          );
-                        }),
+                      : List.generate(
+                          analytics.topBookmarkedSites.length,
+                          (index) {
+                            final item = analytics.topBookmarkedSites[index];
+                            return _rankingRow(
+                              rank: index + 1,
+                              label: item.siteName,
+                              value: item.count,
+                              suffix: item.count == 1 ? 'bookmark' : 'bookmarks',
+                            );
+                          },
+                        ),
+                ),
+                const SizedBox(height: 8),
+                Card(
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    leading: _generatingReport
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2.3),
+                          )
+                        : const Icon(
+                            Icons.picture_as_pdf_rounded,
+                            color: AppColors.brown,
+                          ),
+                    title: const Text(
+                      'Generate PDF Report',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.deepBrown,
+                      ),
+                    ),
+                    subtitle: Text(
+                      _generatingReport
+                          ? 'Building the current HeritageBot system report...'
+                          : 'Create the current administrator PDF report.',
+                    ),
+                    trailing: _generatingReport
+                        ? null
+                        : const Icon(Icons.chevron_right_rounded),
+                    onTap: _generatingReport ? null : _generateReport,
+                  ),
                 ),
               ],
             );
@@ -5184,7 +5290,8 @@ class AdminUsersScreen extends StatefulWidget {
 
 class _AdminUsersScreenState extends State<AdminUsersScreen> {
   final UserService _userService = UserService();
-  final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _searchController =
+      TextEditingController();
 
   late Future<List<UserProfile>> _usersFuture;
   String searchText = '';
@@ -5212,27 +5319,33 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     await _usersFuture;
   }
 
-  List<UserProfile> _filteredUsers(List<UserProfile> users) {
+  List<UserProfile> _filteredUsers(
+    List<UserProfile> users,
+  ) {
     final query = searchText.trim().toLowerCase();
 
     return users.where((profile) {
-      final matchesSearch =
-          query.isEmpty ||
+      final matchesSearch = query.isEmpty ||
           profile.fullName.toLowerCase().contains(query) ||
           profile.email.toLowerCase().contains(query) ||
-          UserRoles.label(profile.role).toLowerCase().contains(query);
+          UserRoles.label(profile.role)
+              .toLowerCase()
+              .contains(query);
 
-      final matchesRole = selectedRole == 'all' || profile.role == selectedRole;
+      final matchesRole =
+          selectedRole == 'all' || profile.role == selectedRole;
 
-      final matchesStatus =
-          selectedStatus == 'all' ||
+      final matchesStatus = selectedStatus == 'all' ||
           profile.accountStatus.toLowerCase() == selectedStatus;
 
       return matchesSearch && matchesRole && matchesStatus;
     }).toList();
   }
 
-  int _countRole(List<UserProfile> users, String role) {
+  int _countRole(
+    List<UserProfile> users,
+    String role,
+  ) {
     return users.where((user) => user.role == role).length;
   }
 
@@ -5240,7 +5353,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     final changed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => AdminUserDetailScreen(profile: profile),
+        builder: (_) => AdminUserDetailScreen(
+          profile: profile,
+        ),
       ),
     );
 
@@ -5279,9 +5394,11 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         child: FutureBuilder<List<UserProfile>>(
           future: _usersFuture,
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
+            if (snapshot.connectionState ==
+                ConnectionState.waiting) {
               return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
+                physics:
+                    const AlwaysScrollableScrollPhysics(),
                 children: const [
                   SizedBox(height: 240),
                   Center(child: CircularProgressIndicator()),
@@ -5291,7 +5408,8 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
             if (snapshot.hasError) {
               return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
+                physics:
+                    const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(18),
                 children: [
                   const InfoCard(
@@ -5303,7 +5421,8 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                   const SizedBox(height: 10),
                   Text(
                     snapshot.error.toString(),
-                    style: const TextStyle(color: Colors.black54),
+                    style:
+                        const TextStyle(color: Colors.black54),
                   ),
                 ],
               );
@@ -5312,16 +5431,24 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
             final users = snapshot.data ?? const [];
             final filtered = _filteredUsers(users);
 
-            final touristCount = _countRole(users, UserRoles.tourist);
+            final touristCount = _countRole(
+              users,
+              UserRoles.tourist,
+            );
             final contributorCount = _countRole(
               users,
               UserRoles.communityContributor,
             );
-            final adminCount = _countRole(users, UserRoles.admin);
+            final adminCount = _countRole(
+              users,
+              UserRoles.admin,
+            );
 
             return ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 40),
+              physics:
+                  const AlwaysScrollableScrollPhysics(),
+              padding:
+                  const EdgeInsets.fromLTRB(18, 18, 18, 40),
               children: [
                 const SectionTitle(
                   title: 'Admin User Management',
@@ -5351,7 +5478,8 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                     _AdminSummaryChip(
                       label: 'Admins',
                       count: adminCount,
-                      icon: Icons.admin_panel_settings_rounded,
+                      icon:
+                          Icons.admin_panel_settings_rounded,
                     ),
                   ],
                 ),
@@ -5361,23 +5489,23 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                   onChanged: (value) {
                     setState(() => searchText = value);
                   },
-                  decoration:
-                      inputDecoration(
-                        label: 'Search Users',
-                        icon: Icons.search_rounded,
-                      ).copyWith(
-                        hintText: 'Name, email, or role',
-                        suffixIcon: searchText.isEmpty
-                            ? null
-                            : IconButton(
-                                tooltip: 'Clear',
-                                onPressed: () {
-                                  _searchController.clear();
-                                  setState(() => searchText = '');
-                                },
-                                icon: const Icon(Icons.close_rounded),
-                              ),
-                      ),
+                  decoration: inputDecoration(
+                    label: 'Search Users',
+                    icon: Icons.search_rounded,
+                  ).copyWith(
+                    hintText: 'Name, email, or role',
+                    suffixIcon: searchText.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear',
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => searchText = '');
+                            },
+                            icon:
+                                const Icon(Icons.close_rounded),
+                          ),
+                  ),
                 ),
                 const SizedBox(height: 14),
                 const Text(
@@ -5396,34 +5524,45 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                         label: 'All',
                         selected: selectedRole == 'all',
                         onTap: () {
-                          setState(() => selectedRole = 'all');
+                          setState(
+                            () => selectedRole = 'all',
+                          );
                         },
                       ),
                       const SizedBox(width: 8),
                       _filterChip(
                         label: 'Tourist',
-                        selected: selectedRole == UserRoles.tourist,
+                        selected:
+                            selectedRole == UserRoles.tourist,
                         onTap: () {
-                          setState(() => selectedRole = UserRoles.tourist);
+                          setState(
+                            () => selectedRole =
+                                UserRoles.tourist,
+                          );
                         },
                       ),
                       const SizedBox(width: 8),
                       _filterChip(
                         label: 'Contributor',
-                        selected:
-                            selectedRole == UserRoles.communityContributor,
+                        selected: selectedRole ==
+                            UserRoles.communityContributor,
                         onTap: () {
                           setState(
-                            () => selectedRole = UserRoles.communityContributor,
+                            () => selectedRole =
+                                UserRoles.communityContributor,
                           );
                         },
                       ),
                       const SizedBox(width: 8),
                       _filterChip(
                         label: 'Administrator',
-                        selected: selectedRole == UserRoles.admin,
+                        selected:
+                            selectedRole == UserRoles.admin,
                         onTap: () {
-                          setState(() => selectedRole = UserRoles.admin);
+                          setState(
+                            () => selectedRole =
+                                UserRoles.admin,
+                          );
                         },
                       ),
                     ],
@@ -5444,23 +5583,32 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                       label: 'All',
                       selected: selectedStatus == 'all',
                       onTap: () {
-                        setState(() => selectedStatus = 'all');
+                        setState(
+                          () => selectedStatus = 'all',
+                        );
                       },
                     ),
                     const SizedBox(width: 8),
                     _filterChip(
                       label: 'Active',
-                      selected: selectedStatus == 'active',
+                      selected:
+                          selectedStatus == 'active',
                       onTap: () {
-                        setState(() => selectedStatus = 'active');
+                        setState(
+                          () => selectedStatus = 'active',
+                        );
                       },
                     ),
                     const SizedBox(width: 8),
                     _filterChip(
                       label: 'Suspended',
-                      selected: selectedStatus == 'suspended',
+                      selected:
+                          selectedStatus == 'suspended',
                       onTap: () {
-                        setState(() => selectedStatus = 'suspended');
+                        setState(
+                          () =>
+                              selectedStatus = 'suspended',
+                        );
                       },
                     ),
                   ],
@@ -5476,18 +5624,23 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                 else
                   ...filtered.map(
                     (profile) => Card(
-                      margin: const EdgeInsets.only(bottom: 12),
+                      margin:
+                          const EdgeInsets.only(bottom: 12),
                       child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
+                        contentPadding:
+                            const EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: 10,
                         ),
                         leading: CircleAvatar(
-                          backgroundColor: AppColors.gold.withOpacity(0.25),
+                          backgroundColor:
+                              AppColors.gold.withOpacity(0.25),
                           child: Icon(
                             profile.isAdmin
-                                ? Icons.admin_panel_settings_rounded
-                                : profile.isCommunityContributor
+                                ? Icons
+                                    .admin_panel_settings_rounded
+                                : profile
+                                      .isCommunityContributor
                                 ? Icons.edit_note_rounded
                                 : Icons.person_rounded,
                             color: AppColors.brown,
@@ -5503,7 +5656,8 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                           ),
                         ),
                         subtitle: Padding(
-                          padding: const EdgeInsets.only(top: 5),
+                          padding:
+                              const EdgeInsets.only(top: 5),
                           child: Text(
                             '${profile.email}\n'
                             '${UserRoles.label(profile.role)} • '
@@ -5511,7 +5665,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                           ),
                         ),
                         isThreeLine: true,
-                        trailing: const Icon(Icons.chevron_right_rounded),
+                        trailing: const Icon(
+                          Icons.chevron_right_rounded,
+                        ),
                         onTap: () => _openUser(profile),
                       ),
                     ),
@@ -5528,13 +5684,18 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 class AdminUserDetailScreen extends StatefulWidget {
   final UserProfile profile;
 
-  const AdminUserDetailScreen({super.key, required this.profile});
+  const AdminUserDetailScreen({
+    super.key,
+    required this.profile,
+  });
 
   @override
-  State<AdminUserDetailScreen> createState() => _AdminUserDetailScreenState();
+  State<AdminUserDetailScreen> createState() =>
+      _AdminUserDetailScreenState();
 }
 
-class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
+class _AdminUserDetailScreenState
+    extends State<AdminUserDetailScreen> {
   final UserService _userService = UserService();
 
   late String accountStatus;
@@ -5554,7 +5715,9 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
       return 'Not available';
     }
 
-    final date = DateTime.fromMillisecondsSinceEpoch(profile.createdAtMillis);
+    final date = DateTime.fromMillisecondsSinceEpoch(
+      profile.createdAtMillis,
+    );
 
     final month = date.month.toString().padLeft(2, '0');
     final day = date.day.toString().padLeft(2, '0');
@@ -5568,7 +5731,10 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
   }
 
@@ -5577,15 +5743,20 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
       return;
     }
 
-    if (profile.isAdmin || _userService.isAuthorizedAdminEmail(profile.email)) {
-      _showMessage('Administrator accounts cannot be suspended.');
+    if (profile.isAdmin ||
+        _userService.isAuthorizedAdminEmail(
+          profile.email,
+        )) {
+      _showMessage(
+        'Administrator accounts cannot be suspended.',
+      );
       return;
     }
 
-    final action = status == 'suspended' ? 'Suspend' : 'Reactivate';
+    final action =
+        status == 'suspended' ? 'Suspend' : 'Reactivate';
 
-    final confirmed =
-        await showDialog<bool>(
+    final confirmed = await showDialog<bool>(
           context: context,
           builder: (dialogContext) {
             return AlertDialog(
@@ -5597,11 +5768,13 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, false),
+                  onPressed: () =>
+                      Navigator.pop(dialogContext, false),
                   child: const Text('Cancel'),
                 ),
                 FilledButton(
-                  onPressed: () => Navigator.pop(dialogContext, true),
+                  onPressed: () =>
+                      Navigator.pop(dialogContext, true),
                   child: Text(action),
                 ),
               ],
@@ -5615,7 +5788,10 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
     setState(() => saving = true);
 
     try {
-      await _userService.updateAccountStatus(profile: profile, status: status);
+      await _userService.updateAccountStatus(
+        profile: profile,
+        status: status,
+      );
 
       if (!mounted) return;
 
@@ -5625,7 +5801,9 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
       });
 
       _showMessage(
-        status == 'suspended' ? 'Account suspended.' : 'Account reactivated.',
+        status == 'suspended'
+            ? 'Account suspended.'
+            : 'Account reactivated.',
       );
     } catch (e) {
       _showMessage(
@@ -5651,7 +5829,11 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 21, color: AppColors.brown),
+          Icon(
+            icon,
+            size: 21,
+            color: AppColors.brown,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -5667,7 +5849,9 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  value.trim().isEmpty ? 'Not available' : value,
+                  value.trim().isEmpty
+                      ? 'Not available'
+                      : value,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
@@ -5684,8 +5868,10 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isProtectedAdmin =
-        profile.isAdmin || _userService.isAuthorizedAdminEmail(profile.email);
+    final isProtectedAdmin = profile.isAdmin ||
+        _userService.isAuthorizedAdminEmail(
+          profile.email,
+        );
 
     return PopScope(
       canPop: false,
@@ -5694,15 +5880,19 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
         Navigator.pop(context, changed);
       },
       child: Scaffold(
-        appBar: AppBar(title: const Text('User Details')),
+        appBar: AppBar(
+          title: const Text('User Details'),
+        ),
         body: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 40),
+          padding:
+              const EdgeInsets.fromLTRB(18, 18, 18, 40),
           children: [
             SectionTitle(
               title: profile.fullName.trim().isEmpty
                   ? 'HeritageBot User'
                   : profile.fullName,
-              subtitle: 'Registered HeritageBot account information.',
+              subtitle:
+                  'Registered HeritageBot account information.',
             ),
             const SizedBox(height: 14),
             Card(
@@ -5719,7 +5909,8 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
                     _detailRow(
                       icon: Icons.badge_rounded,
                       label: 'User Role',
-                      value: UserRoles.label(profile.role),
+                      value:
+                          UserRoles.label(profile.role),
                     ),
                     const Divider(),
                     _detailRow(
@@ -5735,7 +5926,8 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
                     ),
                     const Divider(),
                     _detailRow(
-                      icon: Icons.manage_accounts_rounded,
+                      icon:
+                          Icons.manage_accounts_rounded,
                       label: 'Account Status',
                       value: accountStatus.toUpperCase(),
                     ),
@@ -5746,23 +5938,40 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
             const SizedBox(height: 16),
             if (isProtectedAdmin)
               const InfoCard(
-                icon: Icons.admin_panel_settings_rounded,
+                icon:
+                    Icons.admin_panel_settings_rounded,
                 title: 'Protected Administrator',
                 body:
                     'Authorized administrator accounts remain active and cannot be suspended from user management.',
               )
             else if (accountStatus == 'active')
               ElevatedButton.icon(
-                onPressed: saving ? null : () => _setStatus('suspended'),
-                icon: const Icon(Icons.person_off_rounded),
-                label: Text(saving ? 'Updating...' : 'Suspend Account'),
+                onPressed: saving
+                    ? null
+                    : () => _setStatus('suspended'),
+                icon: const Icon(
+                  Icons.person_off_rounded,
+                ),
+                label: Text(
+                  saving
+                      ? 'Updating...'
+                      : 'Suspend Account',
+                ),
                 style: mainButtonStyle(),
               )
             else
               ElevatedButton.icon(
-                onPressed: saving ? null : () => _setStatus('active'),
-                icon: const Icon(Icons.person_add_alt_1_rounded),
-                label: Text(saving ? 'Updating...' : 'Reactivate Account'),
+                onPressed: saving
+                    ? null
+                    : () => _setStatus('active'),
+                icon: const Icon(
+                  Icons.person_add_alt_1_rounded,
+                ),
+                label: Text(
+                  saving
+                      ? 'Updating...'
+                      : 'Reactivate Account',
+                ),
                 style: mainButtonStyle(),
               ),
           ],
@@ -5780,7 +5989,8 @@ class AdminHeritageSitesScreen extends StatefulWidget {
       _AdminHeritageSitesScreenState();
 }
 
-class _AdminHeritageSitesScreenState extends State<AdminHeritageSitesScreen> {
+class _AdminHeritageSitesScreenState
+    extends State<AdminHeritageSitesScreen> {
   final HeritageSiteService _siteService = HeritageSiteService();
 
   late Future<List<HeritagePlace>> _sitesFuture;
@@ -5807,7 +6017,10 @@ class _AdminHeritageSitesScreenState extends State<AdminHeritageSitesScreen> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
   }
 
@@ -5838,10 +6051,16 @@ class _AdminHeritageSitesScreenState extends State<AdminHeritageSitesScreen> {
     }
   }
 
-  Future<void> _openEditor({HeritagePlace? site}) async {
+  Future<void> _openEditor({
+    HeritagePlace? site,
+  }) async {
     final changed = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (_) => HeritageSiteEditorScreen(site: site)),
+      MaterialPageRoute(
+        builder: (_) => HeritageSiteEditorScreen(
+          site: site,
+        ),
+      ),
     );
 
     if (changed == true && mounted) {
@@ -5849,14 +6068,19 @@ class _AdminHeritageSitesScreenState extends State<AdminHeritageSitesScreen> {
     }
   }
 
-  Future<void> _toggleActive(HeritagePlace site, bool value) async {
+  Future<void> _toggleActive(
+    HeritagePlace site,
+    bool value,
+  ) async {
     try {
       await _siteService.setActive(site, value);
 
       if (!mounted) return;
 
       _showMessage(
-        value ? '${site.name} is now active.' : '${site.name} is now inactive.',
+        value
+            ? '${site.name} is now active.'
+            : '${site.name} is now inactive.',
       );
 
       await _refresh();
@@ -5871,8 +6095,7 @@ class _AdminHeritageSitesScreenState extends State<AdminHeritageSitesScreen> {
   }
 
   Future<void> _deleteSite(HeritagePlace site) async {
-    final confirmed =
-        await showDialog<bool>(
+    final confirmed = await showDialog<bool>(
           context: context,
           builder: (dialogContext) {
             return AlertDialog(
@@ -5884,11 +6107,17 @@ class _AdminHeritageSitesScreenState extends State<AdminHeritageSitesScreen> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, false),
+                  onPressed: () => Navigator.pop(
+                    dialogContext,
+                    false,
+                  ),
                   child: const Text('Cancel'),
                 ),
                 FilledButton(
-                  onPressed: () => Navigator.pop(dialogContext, true),
+                  onPressed: () => Navigator.pop(
+                    dialogContext,
+                    true,
+                  ),
                   child: const Text('Delete'),
                 ),
               ],
@@ -5918,7 +6147,10 @@ class _AdminHeritageSitesScreenState extends State<AdminHeritageSitesScreen> {
 
   Widget _siteTypeChip(HeritagePlace site) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 5,
+      ),
       decoration: BoxDecoration(
         color: AppColors.gold.withOpacity(0.18),
         borderRadius: BorderRadius.circular(999),
@@ -6008,7 +6240,8 @@ class _AdminHeritageSitesScreenState extends State<AdminHeritageSitesScreen> {
                   ),
                   const SizedBox(height: 14),
                   ElevatedButton.icon(
-                    onPressed: initializing ? null : _initializeDefaults,
+                    onPressed:
+                        initializing ? null : _initializeDefaults,
                     icon: initializing
                         ? const SizedBox(
                             width: 18,
@@ -6044,7 +6277,8 @@ class _AdminHeritageSitesScreenState extends State<AdminHeritageSitesScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
                               children: [
                                 Icon(
                                   site.isTesting
@@ -6096,7 +6330,9 @@ class _AdminHeritageSitesScreenState extends State<AdminHeritageSitesScreen> {
                               contentPadding: EdgeInsets.zero,
                               title: const Text(
                                 'Active in HeritageBot',
-                                style: TextStyle(fontWeight: FontWeight.w800),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
                               subtitle: Text(
                                 site.isActive
@@ -6104,19 +6340,24 @@ class _AdminHeritageSitesScreenState extends State<AdminHeritageSitesScreen> {
                                     : 'Hidden from tourist/contributor site features.',
                               ),
                               value: site.isActive,
-                              onChanged: (value) => _toggleActive(site, value),
+                              onChanged: (value) =>
+                                  _toggleActive(site, value),
                             ),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
+                              mainAxisAlignment:
+                                  MainAxisAlignment.end,
                               children: [
                                 TextButton.icon(
-                                  onPressed: () => _openEditor(site: site),
-                                  icon: const Icon(Icons.edit_rounded),
+                                  onPressed: () =>
+                                      _openEditor(site: site),
+                                  icon:
+                                      const Icon(Icons.edit_rounded),
                                   label: const Text('Edit'),
                                 ),
                                 const SizedBox(width: 6),
                                 TextButton.icon(
-                                  onPressed: () => _deleteSite(site),
+                                  onPressed: () =>
+                                      _deleteSite(site),
                                   icon: const Icon(
                                     Icons.delete_outline_rounded,
                                   ),
@@ -6142,14 +6383,18 @@ class _AdminHeritageSitesScreenState extends State<AdminHeritageSitesScreen> {
 class HeritageSiteEditorScreen extends StatefulWidget {
   final HeritagePlace? site;
 
-  const HeritageSiteEditorScreen({super.key, this.site});
+  const HeritageSiteEditorScreen({
+    super.key,
+    this.site,
+  });
 
   @override
   State<HeritageSiteEditorScreen> createState() =>
       _HeritageSiteEditorScreenState();
 }
 
-class _HeritageSiteEditorScreenState extends State<HeritageSiteEditorScreen> {
+class _HeritageSiteEditorScreenState
+    extends State<HeritageSiteEditorScreen> {
   final HeritageSiteService _siteService = HeritageSiteService();
   final HeritageMediaService _mediaService = HeritageMediaService();
   final ImagePicker _imagePicker = ImagePicker();
@@ -6181,8 +6426,12 @@ class _HeritageSiteEditorScreenState extends State<HeritageSiteEditorScreen> {
 
     final site = widget.site;
 
-    nameController = TextEditingController(text: site?.name ?? '');
-    locationController = TextEditingController(text: site?.location ?? '');
+    nameController = TextEditingController(
+      text: site?.name ?? '',
+    );
+    locationController = TextEditingController(
+      text: site?.location ?? '',
+    );
     latitudeController = TextEditingController(
       text: site == null ? '' : site.lat.toString(),
     );
@@ -6194,12 +6443,18 @@ class _HeritageSiteEditorScreenState extends State<HeritageSiteEditorScreen> {
           ? '20000'
           : site.detectionRadiusMeters.toStringAsFixed(0),
     );
-    factsController = TextEditingController(text: site?.historicalFacts ?? '');
+    factsController = TextEditingController(
+      text: site?.historicalFacts ?? '',
+    );
     wikipediaController = TextEditingController(
       text: site?.wikipediaTitle ?? '',
     );
-    videoTitleController = TextEditingController(text: site?.videoTitle ?? '');
-    videoAssetController = TextEditingController(text: site?.videoAsset ?? '');
+    videoTitleController = TextEditingController(
+      text: site?.videoTitle ?? '',
+    );
+    videoAssetController = TextEditingController(
+      text: site?.videoAsset ?? '',
+    );
 
     isTesting = site?.isTesting ?? false;
     isActive = site?.isActive ?? true;
@@ -6226,15 +6481,17 @@ class _HeritageSiteEditorScreenState extends State<HeritageSiteEditorScreen> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
   }
 
   Future<void> _pickSitePhotos() async {
     if (saving) return;
 
-    final remaining =
-        HeritageMediaService.maxImages -
+    final remaining = HeritageMediaService.maxImages -
         existingSiteImages.length -
         selectedSiteImages.length;
 
@@ -6245,7 +6502,9 @@ class _HeritageSiteEditorScreenState extends State<HeritageSiteEditorScreen> {
       return;
     }
 
-    final picked = await _imagePicker.pickMultiImage(imageQuality: 88);
+    final picked = await _imagePicker.pickMultiImage(
+      imageQuality: 88,
+    );
 
     if (picked.isEmpty || !mounted) return;
 
@@ -6278,17 +6537,27 @@ class _HeritageSiteEditorScreenState extends State<HeritageSiteEditorScreen> {
   Future<void> _save() async {
     FocusScope.of(context).unfocus();
 
-    final lat = double.tryParse(latitudeController.text.trim());
-    final lng = double.tryParse(longitudeController.text.trim());
-    final radius = double.tryParse(radiusController.text.trim());
+    final lat = double.tryParse(
+      latitudeController.text.trim(),
+    );
+    final lng = double.tryParse(
+      longitudeController.text.trim(),
+    );
+    final radius = double.tryParse(
+      radiusController.text.trim(),
+    );
 
     if (lat == null || lng == null) {
-      _showMessage('Please enter valid latitude and longitude values.');
+      _showMessage(
+        'Please enter valid latitude and longitude values.',
+      );
       return;
     }
 
     if (radius == null || radius < 10 || radius > 50000) {
-      _showMessage('Detection radius must be between 10 and 50000 meters.');
+      _showMessage(
+        'Detection radius must be between 10 and 50000 meters.',
+      );
       return;
     }
 
@@ -6329,11 +6598,14 @@ class _HeritageSiteEditorScreenState extends State<HeritageSiteEditorScreen> {
           lng: lng,
           historicalFacts: factsController.text.trim(),
           videoTitle: videoTitleController.text.trim(),
-          videoAsset:
-              uploadedVideo ?? (manualVideo.isEmpty ? null : manualVideo),
+          videoAsset: uploadedVideo ??
+              (manualVideo.isEmpty ? null : manualVideo),
           wikipediaTitle: wikipediaController.text.trim(),
           detectionRadiusMeters: radius,
-          imageUrls: [...existingSiteImages, ...uploadedImages],
+          imageUrls: [
+            ...existingSiteImages,
+            ...uploadedImages,
+          ],
           isTesting: isTesting,
           isActive: isActive,
         );
@@ -6389,7 +6661,9 @@ class _HeritageSiteEditorScreenState extends State<HeritageSiteEditorScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            isEditing ? 'Heritage site updated.' : 'Heritage site added.',
+            isEditing
+                ? 'Heritage site updated.'
+                : 'Heritage site added.',
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -6429,7 +6703,10 @@ class _HeritageSiteEditorScreenState extends State<HeritageSiteEditorScreen> {
       decoration: inputDecoration(
         label: label,
         icon: icon,
-      ).copyWith(hintText: hint, alignLabelWithHint: maxLines > 1),
+      ).copyWith(
+        hintText: hint,
+        alignLabelWithHint: maxLines > 1,
+      ),
     );
   }
 
@@ -6437,13 +6714,16 @@ class _HeritageSiteEditorScreenState extends State<HeritageSiteEditorScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(isEditing ? 'Edit Heritage Site' : 'Add Heritage Site'),
+        title: Text(
+          isEditing ? 'Edit Heritage Site' : 'Add Heritage Site',
+        ),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 18, 18, 40),
         children: [
           SectionTitle(
-            title: isEditing ? 'Edit Site Information' : 'New Heritage Site',
+            title:
+                isEditing ? 'Edit Site Information' : 'New Heritage Site',
             subtitle:
                 'These values are stored in Cloud Firestore and used by HeritageBot.',
           ),
@@ -6467,7 +6747,8 @@ class _HeritageSiteEditorScreenState extends State<HeritageSiteEditorScreen> {
                   controller: latitudeController,
                   label: 'Latitude',
                   icon: Icons.my_location_rounded,
-                  keyboardType: const TextInputType.numberWithOptions(
+                  keyboardType:
+                      const TextInputType.numberWithOptions(
                     decimal: true,
                     signed: true,
                   ),
@@ -6479,7 +6760,8 @@ class _HeritageSiteEditorScreenState extends State<HeritageSiteEditorScreen> {
                   controller: longitudeController,
                   label: 'Longitude',
                   icon: Icons.explore_rounded,
-                  keyboardType: const TextInputType.numberWithOptions(
+                  keyboardType:
+                      const TextInputType.numberWithOptions(
                     decimal: true,
                     signed: true,
                   ),
@@ -6669,7 +6951,9 @@ class _HeritageSiteEditorScreenState extends State<HeritageSiteEditorScreen> {
                     ),
                   )
                 : const Icon(Icons.save_rounded),
-            label: Text(saving ? 'Saving...' : 'Save Heritage Site'),
+            label: Text(
+              saving ? 'Saving...' : 'Save Heritage Site',
+            ),
             style: mainButtonStyle(),
           ),
         ],
@@ -6692,11 +6976,16 @@ class _AdminSummaryChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 14,
+        vertical: 12,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.gold.withOpacity(0.45)),
+        border: Border.all(
+          color: AppColors.gold.withOpacity(0.45),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -6719,7 +7008,10 @@ class _AdminSummaryChip extends StatelessWidget {
 class AdminReviewSubmissionScreen extends StatefulWidget {
   final CommunitySubmission submission;
 
-  const AdminReviewSubmissionScreen({super.key, required this.submission});
+  const AdminReviewSubmissionScreen({
+    super.key,
+    required this.submission,
+  });
 
   @override
   State<AdminReviewSubmissionScreen> createState() =>
@@ -6752,7 +7044,8 @@ class _AdminReviewSubmissionScreenState
   Future<void> _review(String status) async {
     final feedback = feedbackController.text.trim();
 
-    if (status == CommunitySubmissionStatus.rejected && feedback.isEmpty) {
+    if (status == CommunitySubmissionStatus.rejected &&
+        feedback.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -6803,12 +7096,68 @@ class _AdminReviewSubmissionScreenState
     }
   }
 
+  Future<void> _deleteSubmission() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete Community Submission?'),
+        content: const Text(
+          'This permanently removes the selected test or incorrect community story from Firestore. This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || saving) return;
+
+    setState(() => saving = true);
+
+    try {
+      await _submissionService.deleteSubmissionAsAdmin(
+        widget.submission.id,
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Community submission deleted.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final submission = widget.submission;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Review Contribution')),
+      appBar: AppBar(
+        title: const Text('Review Contribution'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(18),
         children: [
@@ -6823,6 +7172,13 @@ class _AdminReviewSubmissionScreenState
             body: submission.contributorEmail.isEmpty
                 ? submission.contributorName
                 : '${submission.contributorName}\n${submission.contributorEmail}',
+          ),
+          const SizedBox(height: 12),
+          InfoCard(
+            icon: Icons.schedule_rounded,
+            title: 'Submission Timestamp',
+            body: 'Submitted ${heritageBotTimestamp(submission.createdAtMillis)}\n'
+                'Last updated ${heritageBotTimestamp(submission.updatedAtMillis)}',
           ),
           const SizedBox(height: 12),
           Container(
@@ -6845,7 +7201,9 @@ class _AdminReviewSubmissionScreenState
           InfoCard(
             icon: Icons.info_rounded,
             title: 'Current Status',
-            body: CommunitySubmissionStatus.label(submission.status),
+            body: CommunitySubmissionStatus.label(
+              submission.status,
+            ),
           ),
           if (submission.imageUrls.isNotEmpty) ...[
             const SizedBox(height: 18),
@@ -6876,7 +7234,9 @@ class _AdminReviewSubmissionScreenState
                         return const SizedBox(
                           width: 190,
                           height: 150,
-                          child: Center(child: CircularProgressIndicator()),
+                          child: Center(
+                            child: CircularProgressIndicator(),
+                          ),
                         );
                       },
                       errorBuilder: (_, __, ___) {
@@ -6913,15 +7273,14 @@ class _AdminReviewSubmissionScreenState
             controller: feedbackController,
             minLines: 4,
             maxLines: 7,
-            decoration:
-                inputDecoration(
-                  label: 'Administrator Feedback',
-                  icon: Icons.rate_review_rounded,
-                ).copyWith(
-                  alignLabelWithHint: true,
-                  hintText:
-                      'Add feedback for the contributor. Feedback is required when rejecting.',
-                ),
+            decoration: inputDecoration(
+              label: 'Administrator Feedback',
+              icon: Icons.rate_review_rounded,
+            ).copyWith(
+              alignLabelWithHint: true,
+              hintText:
+                  'Add feedback for the contributor. Feedback is required when rejecting.',
+            ),
           ),
           const SizedBox(height: 20),
           Row(
@@ -6930,7 +7289,9 @@ class _AdminReviewSubmissionScreenState
                 child: OutlinedButton.icon(
                   onPressed: saving
                       ? null
-                      : () => _review(CommunitySubmissionStatus.rejected),
+                      : () => _review(
+                            CommunitySubmissionStatus.rejected,
+                          ),
                   icon: const Icon(Icons.cancel_rounded),
                   label: const Text('Reject'),
                 ),
@@ -6940,7 +7301,9 @@ class _AdminReviewSubmissionScreenState
                 child: ElevatedButton.icon(
                   onPressed: saving
                       ? null
-                      : () => _review(CommunitySubmissionStatus.approved),
+                      : () => _review(
+                            CommunitySubmissionStatus.approved,
+                          ),
                   icon: saving
                       ? const SizedBox(
                           width: 18,
@@ -6951,17 +7314,32 @@ class _AdminReviewSubmissionScreenState
                           ),
                         )
                       : const Icon(Icons.check_circle_rounded),
-                  label: Text(saving ? 'Saving...' : 'Approve'),
+                  label: Text(
+                    saving ? 'Saving...' : 'Approve',
+                  ),
                   style: mainButtonStyle(),
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: saving ? null : _deleteSubmission,
+              icon: const Icon(Icons.delete_forever_rounded),
+              label: const Text('Delete Incorrect/Test Submission'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.redAccent,
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 }
+
 
 class LoginSignupScreen extends StatefulWidget {
   const LoginSignupScreen({super.key});
@@ -7041,9 +7419,7 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
 
         final user = credential.user;
         if (user == null) {
-          throw Exception(
-            'Account was created but the user could not be loaded.',
-          );
+          throw Exception('Account was created but the user could not be loaded.');
         }
 
         await _userService.savePublicProfile(
@@ -7053,7 +7429,9 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
           preferredLanguage: selectedLanguageCode,
         );
 
-        await _languageService.savePreferredLanguageCode(selectedLanguageCode);
+        await _languageService.savePreferredLanguageCode(
+          selectedLanguageCode,
+        );
 
         if (!mounted) return;
 
@@ -7134,7 +7512,9 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
           role: selectedRole,
           preferredLanguage: selectedLanguageCode,
         );
-        await _languageService.savePreferredLanguageCode(selectedLanguageCode);
+        await _languageService.savePreferredLanguageCode(
+          selectedLanguageCode,
+        );
       }
     } catch (e) {
       showMessage(e.toString());
@@ -7158,7 +7538,9 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
           role: selectedRole,
           preferredLanguage: selectedLanguageCode,
         );
-        await _languageService.savePreferredLanguageCode(selectedLanguageCode);
+        await _languageService.savePreferredLanguageCode(
+          selectedLanguageCode,
+        );
       }
     } catch (e) {
       showMessage(e.toString());
@@ -7322,23 +7704,22 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
             borderSide: const BorderSide(color: AppColors.gold, width: 1.7),
           ),
         ),
-        items:
-            SystemSettingsService.enabledLanguagesForUi(
-                  includeCode: selectedLanguageCode,
-                )
-                .map(
-                  (language) => DropdownMenuItem<String>(
-                    value: language.code,
-                    child: Text(
-                      language.name,
-                      style: const TextStyle(
-                        color: AppColors.deepBrown,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+        items: SystemSettingsService.enabledLanguagesForUi(
+          includeCode: selectedLanguageCode,
+        )
+            .map(
+              (language) => DropdownMenuItem<String>(
+                value: language.code,
+                child: Text(
+                  language.name,
+                  style: const TextStyle(
+                    color: AppColors.deepBrown,
+                    fontWeight: FontWeight.w800,
                   ),
-                )
-                .toList(),
+                ),
+              ),
+            )
+            .toList(),
         onChanged: loading
             ? null
             : (value) {
@@ -7367,7 +7748,10 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
         initialValue: selectedRole,
         isExpanded: true,
         decoration: InputDecoration(
-          prefixIcon: const Icon(Icons.badge_rounded, color: AppColors.brown),
+          prefixIcon: const Icon(
+            Icons.badge_rounded,
+            color: AppColors.brown,
+          ),
           labelText: 'Account Type',
           labelStyle: const TextStyle(
             color: Colors.black54,
@@ -7381,7 +7765,10 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
           ),
         ),
         items: const [
-          DropdownMenuItem(value: UserRoles.tourist, child: Text('Tourist')),
+          DropdownMenuItem(
+            value: UserRoles.tourist,
+            child: Text('Tourist'),
+          ),
           DropdownMenuItem(
             value: UserRoles.communityContributor,
             child: Text('Community Contributor'),
@@ -7427,23 +7814,12 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 22),
             children: [
               SizedBox(height: size.height * 0.055),
-              Center(
-                child: Container(
-                  width: 92,
-                  height: 92,
-                  margin: const EdgeInsets.only(bottom: 18),
-                  decoration: BoxDecoration(
-                    color: AppColors.gold.withOpacity(0.18),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: AppColors.gold.withOpacity(0.45),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: const Icon(
-                    Icons.travel_explore_rounded,
-                    size: 58,
-                    color: AppColors.gold,
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: 18),
+                  child: HeritageBotLogo(
+                    size: 104,
+                    showName: false,
                   ),
                 ),
               ),
@@ -7884,7 +8260,8 @@ class CommunityStoriesScreen extends StatefulWidget {
   const CommunityStoriesScreen({super.key});
 
   @override
-  State<CommunityStoriesScreen> createState() => _CommunityStoriesScreenState();
+  State<CommunityStoriesScreen> createState() =>
+      _CommunityStoriesScreenState();
 }
 
 class _CommunityStoriesScreenState extends State<CommunityStoriesScreen> {
@@ -7916,7 +8293,9 @@ class _CommunityStoriesScreenState extends State<CommunityStoriesScreen> {
     super.dispose();
   }
 
-  List<CommunitySubmission> _filtered(List<CommunitySubmission> stories) {
+  List<CommunitySubmission> _filtered(
+    List<CommunitySubmission> stories,
+  ) {
     final query = searchText.trim().toLowerCase();
 
     if (query.isEmpty) {
@@ -7935,7 +8314,9 @@ class _CommunityStoriesScreenState extends State<CommunityStoriesScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => CommunityStoryDetailScreen(story: story),
+        builder: (_) => CommunityStoryDetailScreen(
+          story: story,
+        ),
       ),
     );
   }
@@ -8006,24 +8387,23 @@ class _CommunityStoriesScreenState extends State<CommunityStoriesScreen> {
                   onChanged: (value) {
                     setState(() => searchText = value);
                   },
-                  decoration:
-                      inputDecoration(
-                        label: 'Search Stories',
-                        icon: Icons.search_rounded,
-                      ).copyWith(
-                        hintText:
-                            'Search by title, heritage place, contributor, or story',
-                        suffixIcon: searchText.isEmpty
-                            ? null
-                            : IconButton(
-                                tooltip: 'Clear',
-                                onPressed: () {
-                                  _searchController.clear();
-                                  setState(() => searchText = '');
-                                },
-                                icon: const Icon(Icons.close_rounded),
-                              ),
-                      ),
+                  decoration: inputDecoration(
+                    label: 'Search Stories',
+                    icon: Icons.search_rounded,
+                  ).copyWith(
+                    hintText:
+                        'Search by title, heritage place, contributor, or story',
+                    suffixIcon: searchText.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear',
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => searchText = '');
+                            },
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                  ),
                 ),
                 const SizedBox(height: 18),
                 if (stories.isEmpty)
@@ -8124,6 +8504,15 @@ class _CommunityStoriesScreenState extends State<CommunityStoriesScreen> {
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Approved ${heritageBotTimestamp(story.updatedAtMillis)}',
+                                    style: const TextStyle(
+                                      color: Colors.black45,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                   const SizedBox(height: 10),
                                   Text(
                                     story.story,
@@ -8173,19 +8562,30 @@ class _CommunityStoriesScreenState extends State<CommunityStoriesScreen> {
 class CommunityStoryDetailScreen extends StatelessWidget {
   final CommunitySubmission story;
 
-  const CommunityStoryDetailScreen({super.key, required this.story});
+  const CommunityStoryDetailScreen({
+    super.key,
+    required this.story,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Community Story')),
+      appBar: AppBar(
+        title: const Text('Community Story'),
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 18, 18, 40),
         children: [
-          SectionTitle(title: story.title, subtitle: story.heritagePlaceName),
+          SectionTitle(
+            title: story.title,
+            subtitle: story.heritagePlaceName,
+          ),
           const SizedBox(height: 12),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 8,
+            ),
             decoration: BoxDecoration(
               color: AppColors.gold.withOpacity(0.18),
               borderRadius: BorderRadius.circular(999),
@@ -8193,7 +8593,11 @@ class CommunityStoryDetailScreen extends StatelessWidget {
             child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.verified_rounded, size: 18, color: AppColors.brown),
+                Icon(
+                  Icons.verified_rounded,
+                  size: 18,
+                  color: AppColors.brown,
+                ),
                 SizedBox(width: 6),
                 Flexible(
                   child: Text(
@@ -8212,6 +8616,13 @@ class CommunityStoryDetailScreen extends StatelessWidget {
             icon: Icons.person_rounded,
             title: 'Community Contributor',
             body: story.contributorName,
+          ),
+          const SizedBox(height: 12),
+          InfoCard(
+            icon: Icons.schedule_rounded,
+            title: 'Story Timestamp',
+            body: 'Submitted ${heritageBotTimestamp(story.createdAtMillis)}\n'
+                'Approved/updated ${heritageBotTimestamp(story.updatedAtMillis)}',
           ),
           const SizedBox(height: 12),
           Container(
@@ -8252,14 +8663,19 @@ class CommunityStoryDetailScreen extends StatelessWidget {
 
                       return const SizedBox(
                         height: 220,
-                        child: Center(child: CircularProgressIndicator()),
+                        child: Center(
+                          child: CircularProgressIndicator(),
+                        ),
                       );
                     },
                     errorBuilder: (_, __, ___) {
                       return const SizedBox(
                         height: 220,
                         child: Center(
-                          child: Icon(Icons.broken_image_rounded, size: 42),
+                          child: Icon(
+                            Icons.broken_image_rounded,
+                            size: 42,
+                          ),
                         ),
                       );
                     },
@@ -8296,10 +8712,14 @@ class CommunityStoryDetailScreen extends StatelessWidget {
   }
 }
 
+
 class MainShell extends StatefulWidget {
   final String userRole;
 
-  const MainShell({super.key, this.userRole = UserRoles.tourist});
+  const MainShell({
+    super.key,
+    this.userRole = UserRoles.tourist,
+  });
 
   @override
   State<MainShell> createState() => _MainShellState();
@@ -8307,6 +8727,7 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int currentIndex = 0;
+  bool _geolocationOpened = false;
 
   @override
   Widget build(BuildContext context) {
@@ -8314,13 +8735,19 @@ class _MainShellState extends State<MainShell> {
       valueListenable: LanguageController.current,
       builder: (context, language, _) {
         final code = language.code;
-        final isContributor = widget.userRole == UserRoles.communityContributor;
+        final isContributor =
+            widget.userRole == UserRoles.communityContributor;
 
         final screens = <Widget>[
           const HomeScreen(),
-          const GeolocationScreen(),
-          const MyJournalScreen(),
-          if (isContributor) const ContributorDashboardScreen(),
+          _geolocationOpened
+              ? const GeolocationScreen()
+              : const SizedBox.shrink(),
+          const CommunityStoriesScreen(),
+          if (isContributor)
+            const ContributorDashboardScreen()
+          else
+            const MyJournalScreen(),
           const ProfileScreen(),
         ];
 
@@ -8333,14 +8760,19 @@ class _MainShellState extends State<MainShell> {
             icon: const Icon(Icons.map_rounded),
             label: appText(code, 'geolocation'),
           ),
-          NavigationDestination(
-            icon: const Icon(Icons.book_rounded),
-            label: appText(code, 'myJournal'),
+          const NavigationDestination(
+            icon: Icon(Icons.groups_rounded),
+            label: 'Stories',
           ),
           if (isContributor)
             const NavigationDestination(
               icon: Icon(Icons.history_edu_rounded),
               label: 'Contribute',
+            )
+          else
+            NavigationDestination(
+              icon: const Icon(Icons.book_rounded),
+              label: appText(code, 'myJournal'),
             ),
           NavigationDestination(
             icon: const Icon(Icons.person_rounded),
@@ -8353,11 +8785,19 @@ class _MainShellState extends State<MainShell> {
         }
 
         return Scaffold(
-          body: screens[currentIndex],
+          body: IndexedStack(
+            index: currentIndex,
+            children: screens,
+          ),
           bottomNavigationBar: NavigationBar(
             selectedIndex: currentIndex,
             onDestinationSelected: (index) {
-              setState(() => currentIndex = index);
+              setState(() {
+                currentIndex = index;
+                if (index == 1) {
+                  _geolocationOpened = true;
+                }
+              });
             },
             destinations: destinations,
           ),
@@ -8379,9 +8819,9 @@ class _HeritageSiteSearchScreenState extends State<HeritageSiteSearchScreen> {
   final TextEditingController _searchController = TextEditingController();
   final HeritageDiscoveryService _discoveryService =
       const HeritageDiscoveryService(
-        geminiApiKey: geminiApiKey,
-        geminiModel: geminiModel,
-      );
+    geminiApiKey: geminiApiKey,
+    geminiModel: geminiModel,
+  );
 
   HeritageDiscoveryResult? _discoveryResult;
   bool _searching = false;
@@ -8418,11 +8858,8 @@ class _HeritageSiteSearchScreenState extends State<HeritageSiteSearchScreen> {
         final insertion = current[j - 1] + 1;
         final substitution = previous[j - 1] + substitutionCost;
 
-        current[j] = [
-          deletion,
-          insertion,
-          substitution,
-        ].reduce((left, right) => left < right ? left : right);
+        current[j] = [deletion, insertion, substitution]
+            .reduce((left, right) => left < right ? left : right);
       }
 
       previous = current;
@@ -8442,10 +8879,7 @@ class _HeritageSiteSearchScreenState extends State<HeritageSiteSearchScreen> {
     if (name.startsWith(query)) return 110;
     if (name.contains(query)) return 100;
 
-    final queryWords = query
-        .split(' ')
-        .where((word) => word.isNotEmpty)
-        .toList();
+    final queryWords = query.split(' ').where((word) => word.isNotEmpty).toList();
     final nameWords = name.split(' ').where((word) => word.isNotEmpty).toList();
 
     if (queryWords.isNotEmpty &&
@@ -8484,16 +8918,20 @@ class _HeritageSiteSearchScreenState extends State<HeritageSiteSearchScreen> {
   }
 
   List<HeritagePlace> _registeredSuggestions(String rawQuery) {
-    final scored =
-        heritagePlaces
-            .map((site) => MapEntry(site, _registeredSiteScore(site, rawQuery)))
-            .where((entry) => entry.value > 0)
-            .toList()
-          ..sort((a, b) {
-            final byScore = b.value.compareTo(a.value);
-            if (byScore != 0) return byScore;
-            return a.key.name.toLowerCase().compareTo(b.key.name.toLowerCase());
-          });
+    final scored = heritagePlaces
+        .map(
+          (site) => MapEntry(
+            site,
+            _registeredSiteScore(site, rawQuery),
+          ),
+        )
+        .where((entry) => entry.value > 0)
+        .toList()
+      ..sort((a, b) {
+        final byScore = b.value.compareTo(a.value);
+        if (byScore != 0) return byScore;
+        return a.key.name.toLowerCase().compareTo(b.key.name.toLowerCase());
+      });
 
     return scored.take(5).map((entry) => entry.key).toList();
   }
@@ -8506,7 +8944,9 @@ class _HeritageSiteSearchScreenState extends State<HeritageSiteSearchScreen> {
 
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => HeritageSiteDetailScreen(site: site)),
+      MaterialPageRoute(
+        builder: (_) => HeritageSiteDetailScreen(site: site),
+      ),
     );
   }
 
@@ -8567,7 +9007,9 @@ class _HeritageSiteSearchScreenState extends State<HeritageSiteSearchScreen> {
     final registeredSuggestions = _registeredSuggestions(typedQuery);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Explore Heritage')),
+      appBar: AppBar(
+        title: const Text('Explore Heritage'),
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 18, 18, 40),
         children: [
@@ -8582,26 +9024,25 @@ class _HeritageSiteSearchScreenState extends State<HeritageSiteSearchScreen> {
             autofocus: false,
             textInputAction: TextInputAction.search,
             onSubmitted: (_) => _searchLocation(),
-            decoration:
-                inputDecoration(
-                  label: 'Search heritage or location',
-                  icon: Icons.travel_explore_rounded,
-                ).copyWith(
-                  hintText: 'Type a site name or location',
-                  suffixIcon: _searchController.text.isEmpty
-                      ? null
-                      : IconButton(
-                          tooltip: 'Clear',
-                          onPressed: () {
-                            _searchController.clear();
-                            setState(() {
-                              _discoveryResult = null;
-                              _errorMessage = null;
-                            });
-                          },
-                          icon: const Icon(Icons.close_rounded),
-                        ),
-                ),
+            decoration: inputDecoration(
+              label: 'Search heritage or location',
+              icon: Icons.travel_explore_rounded,
+            ).copyWith(
+              hintText: 'Type a site name or location',
+              suffixIcon: _searchController.text.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Clear',
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() {
+                          _discoveryResult = null;
+                          _errorMessage = null;
+                        });
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+            ),
             onChanged: (_) {
               setState(() {
                 _discoveryResult = null;
@@ -8647,7 +9088,9 @@ class _HeritageSiteSearchScreenState extends State<HeritageSiteSearchScreen> {
                       ),
                       title: Text(
                         site.name,
-                        style: const TextStyle(fontWeight: FontWeight.w800),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                       subtitle: Text(site.location),
                       trailing: const Icon(Icons.north_east_rounded, size: 18),
@@ -8784,7 +9227,10 @@ class _DynamicHeritageSearchCard extends StatelessWidget {
   final DiscoveredHeritagePlace place;
   final VoidCallback onTap;
 
-  const _DynamicHeritageSearchCard({required this.place, required this.onTap});
+  const _DynamicHeritageSearchCard({
+    required this.place,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -8886,9 +9332,9 @@ class _DiscoveredHeritageDetailScreenState
     extends State<DiscoveredHeritageDetailScreen> {
   final HeritageDiscoveryService _discoveryService =
       const HeritageDiscoveryService(
-        geminiApiKey: geminiApiKey,
-        geminiModel: geminiModel,
-      );
+    geminiApiKey: geminiApiKey,
+    geminiModel: geminiModel,
+  );
 
   bool _loading = true;
   String? _guide;
@@ -8910,6 +9356,8 @@ class _DiscoveredHeritageDetailScreenState
       final guide = await _discoveryService.generateAiGuide(
         place: widget.place,
         searchedArea: widget.searchedArea,
+        languageInstruction:
+            LanguageController.current.value.storyInstruction,
       );
       if (!mounted) return;
       setState(() => _guide = guide);
@@ -8928,7 +9376,9 @@ class _DiscoveredHeritageDetailScreenState
     final place = widget.place;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('AI Heritage Guide')),
+      appBar: AppBar(
+        title: const Text('AI Heritage Guide'),
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 18, 18, 40),
         children: [
@@ -9029,7 +9479,10 @@ class _DiscoveredHeritageDetailScreenState
                   else
                     SelectableText(
                       _guide ?? 'No explanation is available for this result.',
-                      style: const TextStyle(fontSize: 16, height: 1.5),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        height: 1.5,
+                      ),
                     ),
                 ],
               ),
@@ -9103,7 +9556,8 @@ class InAppNavigationScreen extends StatefulWidget {
   });
 
   @override
-  State<InAppNavigationScreen> createState() => _InAppNavigationScreenState();
+  State<InAppNavigationScreen> createState() =>
+      _InAppNavigationScreenState();
 }
 
 class _InAppNavigationScreenState extends State<InAppNavigationScreen> {
@@ -9182,7 +9636,10 @@ class _InAppNavigationScreenState extends State<InAppNavigationScreen> {
     }
   }
 
-  Future<void> _loadRoute(Position position, {bool silent = false}) async {
+  Future<void> _loadRoute(
+    Position position, {
+    bool silent = false,
+  }) async {
     if (_loadingRoute) return;
 
     setState(() {
@@ -9270,9 +9727,8 @@ class _InAppNavigationScreenState extends State<InAppNavigationScreen> {
       position.longitude,
     );
 
-    final secondsSinceRoute = DateTime.now()
-        .difference(previousRequest)
-        .inSeconds;
+    final secondsSinceRoute =
+        DateTime.now().difference(previousRequest).inSeconds;
 
     if (movedMeters >= 60 && secondsSinceRoute >= 20) {
       await _loadRoute(position, silent: true);
@@ -9356,7 +9812,10 @@ class _InAppNavigationScreenState extends State<InAppNavigationScreen> {
     if (position == null) return;
 
     try {
-      _mapController.move(LatLng(position.latitude, position.longitude), 17);
+      _mapController.move(
+        LatLng(position.latitude, position.longitude),
+        17,
+      );
     } catch (_) {}
   }
 
@@ -9417,7 +9876,10 @@ class _InAppNavigationScreenState extends State<InAppNavigationScreen> {
               children: [
                 const Row(
                   children: [
-                    Icon(Icons.flag_circle_rounded, color: AppColors.brown),
+                    Icon(
+                      Icons.flag_circle_rounded,
+                      color: AppColors.brown,
+                    ),
                     SizedBox(width: 8),
                     Text(
                       'Heritage Site Reached',
@@ -9447,7 +9909,7 @@ class _InAppNavigationScreenState extends State<InAppNavigationScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                NarrativeTranslationPanel(
+                NarrativeAutoPlaybackPanel(
                   storyFuture: storyFuture,
                   initialLanguage: preferredLanguage,
                 ),
@@ -9470,7 +9932,9 @@ class _InAppNavigationScreenState extends State<InAppNavigationScreen> {
                     );
                   },
                   icon: const Icon(Icons.add_rounded),
-                  label: Text(appText(preferredLanguage.code, 'addMemoryHere')),
+                  label: Text(
+                    appText(preferredLanguage.code, 'addMemoryHere'),
+                  ),
                   style: mainButtonStyle(),
                 ),
               ],
@@ -9520,7 +9984,10 @@ class _InAppNavigationScreenState extends State<InAppNavigationScreen> {
               children: [
                 FlutterMap(
                   mapController: _mapController,
-                  options: MapOptions(initialCenter: center, initialZoom: 16),
+                  options: MapOptions(
+                    initialCenter: center,
+                    initialZoom: 16,
+                  ),
                   children: [
                     TileLayer(
                       urlTemplate:
@@ -9609,7 +10076,9 @@ class _InAppNavigationScreenState extends State<InAppNavigationScreen> {
               width: double.infinity,
               decoration: const BoxDecoration(
                 color: AppColors.bg,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                borderRadius: BorderRadius.vertical(
+                  top: Radius.circular(24),
+                ),
               ),
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(18, 16, 18, 32),
@@ -9724,36 +10193,40 @@ class _InAppNavigationScreenState extends State<InAppNavigationScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    ...route.steps.asMap().entries.map((entry) {
-                      final step = entry.value;
-                      return ListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        leading: CircleAvatar(
-                          radius: 14,
-                          backgroundColor: AppColors.gold.withValues(
-                            alpha: 0.28,
-                          ),
-                          child: Text(
-                            '${entry.key + 1}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w900,
-                              color: AppColors.deepBrown,
+                    ...route.steps.asMap().entries.map(
+                      (entry) {
+                        final step = entry.value;
+                        return ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: CircleAvatar(
+                            radius: 14,
+                            backgroundColor: AppColors.gold.withValues(
+                              alpha: 0.28,
+                            ),
+                            child: Text(
+                              '${entry.key + 1}',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                                color: AppColors.deepBrown,
+                              ),
                             ),
                           ),
-                        ),
-                        title: Text(
-                          step.instruction,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        subtitle: step.distanceKm <= 0
-                            ? null
-                            : Text(
-                                '${step.distanceKm.toStringAsFixed(2)} km • ${_formatDuration(step.timeSeconds)}',
-                              ),
-                      );
-                    }),
+                          title: Text(
+                            step.instruction,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          subtitle: step.distanceKm <= 0
+                              ? null
+                              : Text(
+                                  '${step.distanceKm.toStringAsFixed(2)} km • ${_formatDuration(step.timeSeconds)}',
+                                ),
+                        );
+                      },
+                    ),
                   ],
                   const SizedBox(height: 10),
                   const Text(
@@ -9774,11 +10247,15 @@ class _InAppNavigationScreenState extends State<InAppNavigationScreen> {
   }
 }
 
+
 class _HeritageSearchCard extends StatelessWidget {
   final HeritagePlace site;
   final VoidCallback onTap;
 
-  const _HeritageSearchCard({required this.site, required this.onTap});
+  const _HeritageSearchCard({
+    required this.site,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -9822,14 +10299,18 @@ class _HeritageSearchCard extends StatelessWidget {
 class HeritageSiteDetailScreen extends StatefulWidget {
   final HeritagePlace site;
 
-  const HeritageSiteDetailScreen({super.key, required this.site});
+  const HeritageSiteDetailScreen({
+    super.key,
+    required this.site,
+  });
 
   @override
   State<HeritageSiteDetailScreen> createState() =>
       _HeritageSiteDetailScreenState();
 }
 
-class _HeritageSiteDetailScreenState extends State<HeritageSiteDetailScreen> {
+class _HeritageSiteDetailScreenState
+    extends State<HeritageSiteDetailScreen> {
   final BookmarkService _bookmarkService = BookmarkService();
   final UsageAnalyticsService _usageAnalyticsService = UsageAnalyticsService();
 
@@ -9896,7 +10377,9 @@ class _HeritageSiteDetailScreenState extends State<HeritageSiteDetailScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          content: Text(
+            e.toString().replaceFirst('Exception: ', ''),
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -9909,7 +10392,10 @@ class _HeritageSiteDetailScreenState extends State<HeritageSiteDetailScreen> {
 
   Widget _typeBadge() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 11,
+        vertical: 6,
+      ),
       decoration: BoxDecoration(
         color: AppColors.gold.withOpacity(0.20),
         borderRadius: BorderRadius.circular(999),
@@ -9935,9 +10421,8 @@ class _HeritageSiteDetailScreenState extends State<HeritageSiteDetailScreen> {
         actions: [
           IconButton(
             tooltip: bookmarked ? 'Remove Bookmark' : 'Add Bookmark',
-            onPressed: loadingBookmark || savingBookmark
-                ? null
-                : _toggleBookmark,
+            onPressed:
+                loadingBookmark || savingBookmark ? null : _toggleBookmark,
             icon: savingBookmark
                 ? const SizedBox(
                     width: 20,
@@ -9962,7 +10447,10 @@ class _HeritageSiteDetailScreenState extends State<HeritageSiteDetailScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: SectionTitle(title: site.name, subtitle: site.location),
+                child: SectionTitle(
+                  title: site.name,
+                  subtitle: site.location,
+                ),
               ),
               const SizedBox(width: 10),
               _typeBadge(),
@@ -10005,6 +10493,18 @@ class _HeritageSiteDetailScreenState extends State<HeritageSiteDetailScreen> {
             title: 'Historical Information',
             body: site.historicalFacts,
           ),
+          const SizedBox(height: 10),
+          InfoCard(
+            icon: Icons.school_rounded,
+            title: 'What You Can Learn',
+            body: heritageLearningTakeaway(site),
+          ),
+          const SizedBox(height: 10),
+          InfoCard(
+            icon: Icons.explore_rounded,
+            title: 'Why Visit This Place',
+            body: heritageVisitReason(site),
+          ),
           if (site.imageUrls.isNotEmpty) ...[
             const SizedBox(height: 18),
             const SectionTitle(
@@ -10033,7 +10533,9 @@ class _HeritageSiteDetailScreenState extends State<HeritageSiteDetailScreen> {
                           height: 190,
                           alignment: Alignment.center,
                           color: Colors.black12,
-                          child: const Icon(Icons.broken_image_rounded),
+                          child: const Icon(
+                            Icons.broken_image_rounded,
+                          ),
                         );
                       },
                     ),
@@ -10046,9 +10548,8 @@ class _HeritageSiteDetailScreenState extends State<HeritageSiteDetailScreen> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: loadingBookmark || savingBookmark
-                  ? null
-                  : _toggleBookmark,
+              onPressed:
+                  loadingBookmark || savingBookmark ? null : _toggleBookmark,
               icon: Icon(
                 bookmarked
                     ? Icons.bookmark_remove_rounded
@@ -10101,7 +10602,8 @@ class BookmarkedSitesScreen extends StatefulWidget {
   const BookmarkedSitesScreen({super.key});
 
   @override
-  State<BookmarkedSitesScreen> createState() => _BookmarkedSitesScreenState();
+  State<BookmarkedSitesScreen> createState() =>
+      _BookmarkedSitesScreenState();
 }
 
 class _BookmarkedSitesScreenState extends State<BookmarkedSitesScreen> {
@@ -10127,7 +10629,9 @@ class _BookmarkedSitesScreenState extends State<BookmarkedSitesScreen> {
   Future<void> _openSite(HeritagePlace site) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => HeritageSiteDetailScreen(site: site)),
+      MaterialPageRoute(
+        builder: (_) => HeritageSiteDetailScreen(site: site),
+      ),
     );
 
     if (mounted) {
@@ -10185,14 +10689,16 @@ class _BookmarkedSitesScreenState extends State<BookmarkedSitesScreen> {
 
             final ids = snapshot.data ?? <String>{};
 
-            final sites =
-                heritagePlaces
-                    .where((site) => ids.contains(site.id) && site.isActive)
-                    .toList()
-                  ..sort(
-                    (a, b) =>
-                        a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-                  );
+            final sites = heritagePlaces
+                .where(
+                  (site) => ids.contains(site.id) && site.isActive,
+                )
+                .toList()
+              ..sort(
+                (a, b) => a.name.toLowerCase().compareTo(
+                      b.name.toLowerCase(),
+                    ),
+              );
 
             final unavailableCount = ids.length - sites.length;
 
@@ -10238,42 +10744,51 @@ class _BookmarkedSitesScreenState extends State<BookmarkedSitesScreen> {
   }
 }
 
+
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
-  void openVideo(BuildContext context, HeritagePlace place) {
-    if (!place.hasVideo) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            appText(LanguageController.current.value.code, 'noVideoBody'),
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => HeritageVideoScreen(place: place)),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final videoPlaces = heritagePlaces
-        .where((place) => place.hasVideo)
-        .toList();
     return ValueListenableBuilder<AppLanguage>(
       valueListenable: LanguageController.current,
       builder: (context, language, _) {
         final code = language.code;
+
         return Scaffold(
           appBar: AppBar(title: const Text('HeritageBot')),
           body: ListView(
             padding: const EdgeInsets.all(18),
             children: [
+              Card(
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  leading: const Icon(
+                    Icons.search_rounded,
+                    color: AppColors.brown,
+                  ),
+                  title: const Text(
+                    'Explore Heritage by Location',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.deepBrown,
+                    ),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const HeritageSiteSearchScreen(),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 14),
               Container(
                 padding: const EdgeInsets.all(22),
                 decoration: BoxDecoration(
@@ -10335,114 +10850,6 @@ class HomeScreen extends StatelessWidget {
                 title: appText(code, 'memoryJournalTitle'),
                 body: appText(code, 'memoryJournalBody'),
               ),
-              const SizedBox(height: 8),
-              Card(
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  leading: const Icon(
-                    Icons.search_rounded,
-                    color: AppColors.brown,
-                  ),
-                  title: const Text(
-                    'Explore Heritage by Location',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.deepBrown,
-                    ),
-                  ),
-                  subtitle: const Text(
-                    'Search any location to discover nearby heritage places and open an AI-grounded heritage guide.',
-                  ),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const HeritageSiteSearchScreen(),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 8),
-              Card(
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  leading: const Icon(
-                    Icons.bookmark_rounded,
-                    color: AppColors.brown,
-                  ),
-                  title: const Text(
-                    'Bookmarked Sites',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.deepBrown,
-                    ),
-                  ),
-                  subtitle: const Text(
-                    'Open the heritage locations you saved for quick access.',
-                  ),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const BookmarkedSitesScreen(),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 8),
-              Card(
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  leading: const Icon(
-                    Icons.groups_rounded,
-                    color: AppColors.brown,
-                  ),
-                  title: const Text(
-                    'Community Stories',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.deepBrown,
-                    ),
-                  ),
-                  subtitle: const Text(
-                    'Read heritage stories contributed by the community and approved by an Administrator.',
-                  ),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const CommunityStoriesScreen(),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 8),
-              SectionTitle(
-                title: appText(code, 'heritageVideos'),
-                subtitle: '',
-              ),
-              const SizedBox(height: 8),
-              ...videoPlaces.map(
-                (place) => VideoPlaceCard(
-                  place: place,
-                  onTap: () => openVideo(context, place),
-                ),
-              ),
             ],
           ),
         );
@@ -10493,37 +10900,32 @@ class HeritageVideoScreen extends StatelessWidget {
   }
 }
 
-class NarrativeTranslationPanel extends StatefulWidget {
+class NarrativeAutoPlaybackPanel extends StatefulWidget {
   final Future<String> storyFuture;
   final AppLanguage initialLanguage;
 
-  const NarrativeTranslationPanel({
+  const NarrativeAutoPlaybackPanel({
     super.key,
     required this.storyFuture,
     required this.initialLanguage,
   });
 
   @override
-  State<NarrativeTranslationPanel> createState() =>
-      _NarrativeTranslationPanelState();
+  State<NarrativeAutoPlaybackPanel> createState() =>
+      _NarrativeAutoPlaybackPanelState();
 }
 
-class _NarrativeTranslationPanelState extends State<NarrativeTranslationPanel> {
-  final GeminiStoryService _storyService = GeminiStoryService();
+class _NarrativeAutoPlaybackPanelState
+    extends State<NarrativeAutoPlaybackPanel> {
+  final NarrativeAudioService _audioService = NarrativeAudioService();
 
-  String? _originalStory;
-  String? _displayedStory;
+  String? _story;
   String? _errorMessage;
-  late AppLanguage _displayedLanguage;
-  late AppLanguage _targetLanguage;
   bool _loadingStory = true;
-  bool _translating = false;
 
   @override
   void initState() {
     super.initState();
-    _displayedLanguage = widget.initialLanguage;
-    _targetLanguage = widget.initialLanguage;
     _loadStory();
   }
 
@@ -10534,11 +10936,14 @@ class _NarrativeTranslationPanelState extends State<NarrativeTranslationPanel> {
       if (!mounted) return;
 
       setState(() {
-        _originalStory = story;
-        _displayedStory = story;
+        _story = story;
         _loadingStory = false;
         _errorMessage = null;
       });
+
+      if (story.trim().isNotEmpty) {
+        unawaited(_playAutomatically(story));
+      }
     } catch (e) {
       if (!mounted) return;
 
@@ -10549,56 +10954,22 @@ class _NarrativeTranslationPanelState extends State<NarrativeTranslationPanel> {
     }
   }
 
-  Future<void> _translate() async {
-    final originalStory = _originalStory?.trim() ?? '';
-
-    if (originalStory.isEmpty || _translating) return;
-
-    if (_targetLanguage.code == widget.initialLanguage.code) {
-      setState(() {
-        _displayedStory = _originalStory;
-        _displayedLanguage = widget.initialLanguage;
-        _errorMessage = null;
-      });
-      return;
-    }
-
-    setState(() {
-      _translating = true;
-      _errorMessage = null;
-    });
-
+  Future<void> _playAutomatically(String story) async {
     try {
-      final translated = await _storyService.translateNarrative(
-        narrative: originalStory,
-        sourceLanguage: widget.initialLanguage,
-        targetLanguage: _targetLanguage,
+      await _audioService.stop();
+      await _audioService.speak(
+        text: story,
+        languageCode: widget.initialLanguage.code,
       );
-
-      if (!mounted) return;
-
-      setState(() {
-        _displayedStory = translated;
-        _displayedLanguage = _targetLanguage;
-        _translating = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        _translating = false;
-        _errorMessage = e.toString().replaceFirst('Exception: ', '');
-      });
+    } catch (error) {
+      debugPrint('Automatic narrative audio could not start: $error');
     }
   }
 
-  void _showOriginal() {
-    setState(() {
-      _targetLanguage = widget.initialLanguage;
-      _displayedLanguage = widget.initialLanguage;
-      _displayedStory = _originalStory;
-      _errorMessage = null;
-    });
+  @override
+  void dispose() {
+    unawaited(_audioService.stop());
+    super.dispose();
   }
 
   @override
@@ -10606,12 +10977,18 @@ class _NarrativeTranslationPanelState extends State<NarrativeTranslationPanel> {
     if (_loadingStory) {
       return InfoCard(
         icon: Icons.auto_awesome_rounded,
-        title: appText(widget.initialLanguage.code, 'generatingStory'),
-        body: appText(widget.initialLanguage.code, 'generatingStoryBody'),
+        title: appText(
+          widget.initialLanguage.code,
+          'generatingStory',
+        ),
+        body: appText(
+          widget.initialLanguage.code,
+          'generatingStoryBody',
+        ),
       );
     }
 
-    if (_displayedStory == null || _displayedStory!.trim().isEmpty) {
+    if (_story == null || _story!.trim().isEmpty) {
       return InfoCard(
         icon: Icons.error_outline_rounded,
         title: 'Narrative Unavailable',
@@ -10619,294 +10996,13 @@ class _NarrativeTranslationPanelState extends State<NarrativeTranslationPanel> {
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        InfoCard(
-          icon: Icons.auto_awesome_rounded,
-          title: appText(widget.initialLanguage.code, 'contextStoryTitle'),
-          body: _displayedStory!,
-        ),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: AppColors.gold.withOpacity(0.35)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Row(
-                children: [
-                  Icon(Icons.translate_rounded, color: AppColors.brown),
-                  SizedBox(width: 9),
-                  Expanded(
-                    child: Text(
-                      'Translate Narrative',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w900,
-                        color: AppColors.deepBrown,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Current narrative: ${_displayedLanguage.name}',
-                style: const TextStyle(
-                  color: Colors.black54,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: _targetLanguage.code,
-                decoration: const InputDecoration(
-                  labelText: 'Translate to',
-                  border: OutlineInputBorder(),
-                ),
-                items:
-                    SystemSettingsService.enabledLanguagesForUi(
-                          includeCode: _targetLanguage.code,
-                        )
-                        .map(
-                          (language) => DropdownMenuItem<String>(
-                            value: language.code,
-                            child: Text(language.name),
-                          ),
-                        )
-                        .toList(),
-                onChanged: _translating
-                    ? null
-                    : (value) {
-                        if (value == null) return;
-                        setState(() {
-                          _targetLanguage = languageByCode(value);
-                        });
-                      },
-              ),
-              if (_errorMessage != null) ...[
-                const SizedBox(height: 10),
-                Text(
-                  _errorMessage!,
-                  style: const TextStyle(
-                    color: Colors.redAccent,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _translating ? null : _translate,
-                      icon: _translating
-                          ? const SizedBox(
-                              width: 17,
-                              height: 17,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.translate_rounded),
-                      label: Text(
-                        _translating ? 'Translating...' : 'Translate',
-                      ),
-                      style: mainButtonStyle(),
-                    ),
-                  ),
-                  if (_displayedLanguage.code !=
-                      widget.initialLanguage.code) ...[
-                    const SizedBox(width: 10),
-                    OutlinedButton.icon(
-                      onPressed: _translating ? null : _showOriginal,
-                      icon: const Icon(Icons.restore_rounded),
-                      label: const Text('Original'),
-                    ),
-                  ],
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        NarrativeAudioControls(
-          key: ValueKey(
-            '${_displayedLanguage.code}-${_displayedStory.hashCode}',
-          ),
-          storyFuture: Future<String>.value(_displayedStory!),
-          languageCode: _displayedLanguage.code,
-        ),
-      ],
-    );
-  }
-}
-
-class NarrativeAudioControls extends StatefulWidget {
-  final Future<String> storyFuture;
-  final String languageCode;
-
-  const NarrativeAudioControls({
-    super.key,
-    required this.storyFuture,
-    required this.languageCode,
-  });
-
-  @override
-  State<NarrativeAudioControls> createState() => _NarrativeAudioControlsState();
-}
-
-class _NarrativeAudioControlsState extends State<NarrativeAudioControls> {
-  final NarrativeAudioService _audioService = NarrativeAudioService();
-
-  bool preparing = false;
-  bool speaking = false;
-  String? errorMessage;
-
-  Future<void> _listen() async {
-    if (preparing || speaking) return;
-
-    setState(() {
-      preparing = true;
-      errorMessage = null;
-    });
-
-    try {
-      final story = await widget.storyFuture;
-
-      if (!mounted) return;
-
-      if (story.trim().isEmpty) {
-        throw Exception('The narrative is empty and cannot be played.');
-      }
-
-      setState(() {
-        preparing = false;
-        speaking = true;
-      });
-
-      await _audioService.speak(text: story, languageCode: widget.languageCode);
-
-      if (!mounted) return;
-
-      setState(() => speaking = false);
-    } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        preparing = false;
-        speaking = false;
-        errorMessage = e.toString().replaceFirst('Exception: ', '');
-      });
-    }
-  }
-
-  Future<void> _stop() async {
-    await _audioService.stop();
-
-    if (!mounted) return;
-
-    setState(() {
-      preparing = false;
-      speaking = false;
-    });
-  }
-
-  @override
-  void dispose() {
-    _audioService.stop();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.gold.withOpacity(0.35)),
+    return InfoCard(
+      icon: Icons.auto_awesome_rounded,
+      title: appText(
+        widget.initialLanguage.code,
+        'contextStoryTitle',
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.record_voice_over_rounded, color: AppColors.brown),
-              SizedBox(width: 9),
-              Expanded(
-                child: Text(
-                  'Audio Narrative',
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.deepBrown,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 7),
-          Text(
-            speaking
-                ? 'HeritageBot is reading the generated narrative aloud.'
-                : preparing
-                ? 'Preparing the generated narrative...'
-                : 'Listen to the AI-generated historical narrative using your phone’s text-to-speech voice.',
-            style: const TextStyle(color: Colors.black54, height: 1.4),
-          ),
-          if (errorMessage != null) ...[
-            const SizedBox(height: 9),
-            Text(
-              errorMessage!,
-              style: const TextStyle(
-                color: Colors.redAccent,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: preparing || speaking ? null : _listen,
-                  icon: preparing
-                      ? const SizedBox(
-                          width: 17,
-                          height: 17,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.volume_up_rounded),
-                  label: Text(
-                    preparing
-                        ? 'Preparing...'
-                        : speaking
-                        ? 'Playing...'
-                        : 'Listen',
-                  ),
-                  style: mainButtonStyle(),
-                ),
-              ),
-              const SizedBox(width: 10),
-              OutlinedButton.icon(
-                onPressed: preparing || speaking ? _stop : null,
-                icon: const Icon(Icons.stop_rounded),
-                label: const Text('Stop'),
-              ),
-            ],
-          ),
-        ],
-      ),
+      body: _story!,
     );
   }
 }
@@ -11203,7 +11299,7 @@ class _GeolocationScreenState extends State<GeolocationScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                NarrativeTranslationPanel(
+                NarrativeAutoPlaybackPanel(
                   storyFuture: storyFuture,
                   initialLanguage: preferredLanguage,
                 ),
@@ -11430,6 +11526,19 @@ class _MyJournalScreenState extends State<MyJournalScreen> {
     setState(reload);
   }
 
+  Future<void> editEntry(JournalEntry entry) async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EditJournalScreen(entry: entry),
+      ),
+    );
+
+    if (changed == true && mounted) {
+      setState(reload);
+    }
+  }
+
   void openAddManual() {
     showModalBottomSheet(
       context: context,
@@ -11517,6 +11626,7 @@ class _MyJournalScreenState extends State<MyJournalScreen> {
             children: entries.map((entry) {
               return JournalCard(
                 entry: entry,
+                onEdit: () => editEntry(entry),
                 onDelete: () => deleteEntry(entry.id),
               );
             }).toList(),
@@ -11780,6 +11890,300 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
   }
 }
 
+
+class EditJournalScreen extends StatefulWidget {
+  final JournalEntry entry;
+
+  const EditJournalScreen({
+    super.key,
+    required this.entry,
+  });
+
+  @override
+  State<EditJournalScreen> createState() => _EditJournalScreenState();
+}
+
+class _EditJournalScreenState extends State<EditJournalScreen> {
+  final JournalService journalService = JournalService();
+  final ImagePicker picker = ImagePicker();
+
+  late final TextEditingController letterController;
+  late List<String> imagePaths;
+  late List<String> videoPaths;
+
+  bool saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    letterController = TextEditingController(text: widget.entry.letter);
+    imagePaths = List<String>.from(widget.entry.imagePaths);
+    videoPaths = List<String>.from(widget.entry.videoPaths);
+  }
+
+  Future<String> copyPickedFileToPermanentStorage(
+    XFile pickedFile,
+    String folderName,
+  ) async {
+    final appDirectory = await getApplicationDocumentsDirectory();
+    final mediaDirectory = Directory(
+      '${appDirectory.path}/heritagebot_media/$folderName',
+    );
+
+    if (!await mediaDirectory.exists()) {
+      await mediaDirectory.create(recursive: true);
+    }
+
+    final originalName = pickedFile.name.trim().isEmpty
+        ? pickedFile.path.split('/').last
+        : pickedFile.name.trim();
+
+    final safeName = originalName.replaceAll(
+      RegExp(r'[^A-Za-z0-9._-]'),
+      '_',
+    );
+
+    final newPath =
+        '${mediaDirectory.path}/${DateTime.now().microsecondsSinceEpoch}_$safeName';
+
+    final savedFile = await File(pickedFile.path).copy(newPath);
+    return savedFile.path;
+  }
+
+  Future<void> pickImage() async {
+    final XFile? file = await picker.pickImage(source: ImageSource.gallery);
+    if (file == null) return;
+
+    final savedPath = await copyPickedFileToPermanentStorage(file, 'images');
+    if (!mounted) return;
+
+    setState(() => imagePaths.add(savedPath));
+  }
+
+  Future<void> pickVideo() async {
+    final XFile? file = await picker.pickVideo(source: ImageSource.gallery);
+    if (file == null) return;
+
+    final savedPath = await copyPickedFileToPermanentStorage(file, 'videos');
+    if (!mounted) return;
+
+    setState(() => videoPaths.add(savedPath));
+  }
+
+  Future<void> saveChanges() async {
+    if (letterController.text.trim().isEmpty &&
+        imagePaths.isEmpty &&
+        videoPaths.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Keep at least a letter, photo, or video.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => saving = true);
+
+    try {
+      final updatedEntry = JournalEntry(
+        id: widget.entry.id,
+        userId: widget.entry.userId,
+        placeId: widget.entry.placeId,
+        placeName: widget.entry.placeName,
+        letter: letterController.text.trim(),
+        imagePaths: List<String>.from(imagePaths),
+        videoPaths: List<String>.from(videoPaths),
+        createdAt: widget.entry.createdAt,
+        createdAtMillis: widget.entry.createdAtMillis,
+      );
+
+      // addEntry writes to the same Firestore document ID, so this updates
+      // the existing journal entry while preserving its original timestamp.
+      await journalService.addEntry(updatedEntry);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Journal entry updated.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not update journal entry: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => saving = false);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    letterController.dispose();
+    super.dispose();
+  }
+
+  Widget imagePreview(String path) {
+    final image = path.startsWith('http')
+        ? Image.network(
+            path,
+            width: 95,
+            height: 95,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => const SizedBox(
+              width: 95,
+              height: 95,
+              child: Icon(Icons.broken_image_rounded),
+            ),
+          )
+        : Image.file(
+            File(path),
+            width: 95,
+            height: 95,
+            fit: BoxFit.cover,
+          );
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: image,
+        ),
+        Positioned(
+          top: -8,
+          right: -8,
+          child: IconButton.filled(
+            visualDensity: VisualDensity.compact,
+            tooltip: 'Remove picture',
+            onPressed: () {
+              setState(() => imagePaths.remove(path));
+            },
+            icon: const Icon(Icons.close_rounded, size: 17),
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Edit Journal Entry'),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(18),
+        children: [
+          SectionTitle(
+            title: widget.entry.placeName,
+            subtitle:
+                'Edit your memory while keeping the original journal date and time.',
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: letterController,
+            maxLines: 8,
+            decoration: inputDecoration(
+              label: 'Journal Message',
+              icon: Icons.edit_note_rounded,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: pickImage,
+                  icon: const Icon(Icons.image_rounded),
+                  label: const Text('Add Picture'),
+                  style: socialButtonStyle(),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: pickVideo,
+                  icon: const Icon(Icons.video_library_rounded),
+                  label: const Text('Add Video'),
+                  style: socialButtonStyle(),
+                ),
+              ),
+            ],
+          ),
+          if (imagePaths.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            const Text(
+              'Pictures',
+              style: TextStyle(fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: imagePaths.map(imagePreview).toList(),
+            ),
+          ],
+          if (videoPaths.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            const Text(
+              'Videos',
+              style: TextStyle(fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 8),
+            ...videoPaths.map(
+              (path) => Column(
+                children: [
+                  LocalJournalVideoPlayer(
+                    filePath: path,
+                    title: 'Attached Video',
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () {
+                        setState(() => videoPaths.remove(path));
+                      },
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      label: const Text('Remove Video'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 20),
+          ElevatedButton.icon(
+            onPressed: saving ? null : saveChanges,
+            icon: saving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.save_rounded),
+            label: Text(saving ? 'Saving Changes...' : 'Save Changes'),
+            style: mainButtonStyle(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
@@ -11840,15 +12244,16 @@ class ProfileScreen extends StatelessWidget {
                 label: appText(code, 'preferredLanguage'),
                 icon: Icons.translate_rounded,
               ),
-              items:
-                  SystemSettingsService.enabledLanguagesForUi(includeCode: code)
-                      .map(
-                        (language) => DropdownMenuItem<String>(
-                          value: language.code,
-                          child: Text(language.name),
-                        ),
-                      )
-                      .toList(),
+              items: SystemSettingsService.enabledLanguagesForUi(
+                includeCode: code,
+              )
+                  .map(
+                    (language) => DropdownMenuItem<String>(
+                      value: language.code,
+                      child: Text(language.name),
+                    ),
+                  )
+                  .toList(),
               onChanged: (value) async {
                 if (value == null) return;
                 await LanguageController.setLanguageCode(value);
@@ -12319,9 +12724,15 @@ class LocalJournalImageThumb extends StatelessWidget {
 
 class JournalCard extends StatelessWidget {
   final JournalEntry entry;
+  final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
-  const JournalCard({super.key, required this.entry, required this.onDelete});
+  const JournalCard({
+    super.key,
+    required this.entry,
+    this.onEdit,
+    required this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -12351,14 +12762,43 @@ class JournalCard extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (onEdit != null)
+                  IconButton(
+                    tooltip: 'Edit journal',
+                    onPressed: onEdit,
+                    icon: const Icon(
+                      Icons.edit_rounded,
+                      color: AppColors.brown,
+                    ),
+                  ),
                 if (onDelete != null)
                   IconButton(
+                    tooltip: 'Delete journal',
                     onPressed: onDelete,
                     icon: const Icon(
                       Icons.delete_rounded,
                       color: Colors.redAccent,
                     ),
                   ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(
+                  Icons.schedule_rounded,
+                  size: 16,
+                  color: Colors.black45,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  heritageBotTimestamp(entry.createdAtMillis),
+                  style: const TextStyle(
+                    color: Colors.black54,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ],
             ),
             if (entry.letter.isNotEmpty) ...[

@@ -62,6 +62,7 @@ class HeritageDiscoveryService {
   Future<String> generateAiGuide({
     required DiscoveredHeritagePlace place,
     required String searchedArea,
+    required String languageInstruction,
   }) async {
     final sourceSummary = place.sourceSummary.trim().isEmpty
         ? 'No encyclopedia summary was retrieved for this place.'
@@ -74,7 +75,11 @@ class HeritageDiscoveryService {
         .join('\n');
 
     if (geminiApiKey.isEmpty) {
-      return _fallbackGuide(place, sourceSummary);
+      return _fallbackGuide(
+        place,
+        sourceSummary,
+        languageInstruction: languageInstruction,
+      );
     }
 
     final prompt =
@@ -98,13 +103,18 @@ STRICT GROUNDING RULES:
 - Do not use hidden memory or invent dates, people, events, architecture, legends, or cultural claims.
 - If the supplied sources do not contain enough historical detail, explicitly say that detailed historical information was not available in the retrieved sources.
 - Treat this as an external discovery result, not as a verified HeritageBot knowledge-base record.
-- Use clear, simple English suitable for tourists and students.
+- Use clear, simple wording suitable for tourists and students.
+- Write the complete response in $languageInstruction.
+- Keep place names and proper names accurate; do not translate a proper name if that would make it incorrect.
 
-Return the response using exactly these headings:
-WHAT CAN BE FOUND THERE
+Return the response using exactly these five sections, translated into $languageInstruction:
 HISTORICAL BACKGROUND
-CULTURAL SIGNIFICANCE
+WHY THIS PLACE MATTERS
 WHAT YOU CAN LEARN
+WHY IT IS WORTH VISITING
+WHAT TO NOTICE WHEN YOU VISIT
+
+For WHY IT IS WORTH VISITING and WHAT TO NOTICE WHEN YOU VISIT, only describe reasons that are supported by the retrieved metadata or encyclopedia summary. If the sources are insufficient, say that clearly instead of inventing attractions.
 
 Keep each section concise, around 2 to 4 sentences.
 ''';
@@ -135,7 +145,11 @@ Keep each section concise, around 2 to 4 sentences.
           .timeout(const Duration(seconds: 30));
 
       if (response.statusCode != 200) {
-        return _fallbackGuide(place, sourceSummary);
+        return _fallbackGuide(
+          place,
+          sourceSummary,
+          languageInstruction: languageInstruction,
+        );
       }
 
       final data = jsonDecode(response.body);
@@ -144,9 +158,17 @@ Keep each section concise, around 2 to 4 sentences.
         return text.trim();
       }
 
-      return _fallbackGuide(place, sourceSummary);
+      return _fallbackGuide(
+        place,
+        sourceSummary,
+        languageInstruction: languageInstruction,
+      );
     } catch (_) {
-      return _fallbackGuide(place, sourceSummary);
+      return _fallbackGuide(
+        place,
+        sourceSummary,
+        languageInstruction: languageInstruction,
+      );
     }
   }
 
@@ -411,24 +433,33 @@ out body center 60;
         .join(' ');
   }
 
-  String _fallbackGuide(DiscoveredHeritagePlace place, String summary) {
+  String _fallbackGuide(
+    DiscoveredHeritagePlace place,
+    String summary, {
+    required String languageInstruction,
+  }) {
     final historical =
         summary == 'No encyclopedia summary was retrieved for this place.'
         ? 'Detailed historical information was not available in the retrieved sources for this discovery result.'
         : summary;
 
     return '''
-WHAT CAN BE FOUND THERE
-${place.name} was discovered as a ${place.category.toLowerCase()} near ${place.location}. This result comes from external map data and is not automatically a registered HeritageBot geofence site.
-
 HISTORICAL BACKGROUND
 $historical
 
-CULTURAL SIGNIFICANCE
-The retrieved sources identify this place as heritage- or history-related. More specific cultural claims should be confirmed using official heritage, museum, government, or academic records before they are added to HeritageBot's verified knowledge base.
+WHY THIS PLACE MATTERS
+${place.name} was discovered as a ${place.category.toLowerCase()} near ${place.location}. The retrieved sources identify it as heritage- or history-related, but this external discovery result is not automatically a verified HeritageBot knowledge-base record.
 
 WHAT YOU CAN LEARN
-You can use this discovery result as a starting point for learning about the place, its setting, and why it may be historically important. For verified study or research, compare the result with authoritative historical sources.
+You can use this discovery result to learn about the place, its setting, and the historical information that is actually present in the retrieved sources. For study or research, compare the result with authoritative heritage, museum, government, or academic records.
+
+WHY IT IS WORTH VISITING
+The retrieved information suggests that the place may be useful for understanding local history in its real setting. More specific visitor claims are not available unless they are supported by the retrieved sources.
+
+WHAT TO NOTICE WHEN YOU VISIT
+Observe the place itself, its surroundings, visible heritage features, and any on-site historical information. Do not treat details that are absent from the retrieved sources as verified facts.
+
+Language requested by the user's HeritageBot profile: $languageInstruction.
 ''';
   }
 }

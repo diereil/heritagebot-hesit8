@@ -206,11 +206,35 @@ class KnowledgeBaseService {
   ) async {
     var synced = 0;
 
-    for (final submission in submissions) {
-      if (submission.status != CommunitySubmissionStatus.approved) {
-        continue;
-      }
+    // Keep the RAG knowledge base consistent with the live approved
+    // Community Stories collection. If an Admin rejects or deletes a story,
+    // remove its previously-synced knowledge-base record before rebuilding
+    // embeddings so stale content can no longer be retrieved by RAG.
+    final approvedSubmissions = submissions
+        .where(
+          (submission) =>
+              submission.status == CommunitySubmissionStatus.approved,
+        )
+        .toList();
 
+    final approvedSubmissionIds = approvedSubmissions
+        .map((submission) => submission.id)
+        .toSet();
+
+    final existingCommunitySnapshot = await _collection
+        .where('sourceType', isEqualTo: 'community')
+        .get();
+
+    for (final document in existingCommunitySnapshot.docs) {
+      final sourceRefId =
+          document.data()['sourceRefId']?.toString().trim() ?? '';
+
+      if (sourceRefId.isEmpty || !approvedSubmissionIds.contains(sourceRefId)) {
+        await document.reference.delete();
+      }
+    }
+
+    for (final submission in approvedSubmissions) {
       final id = 'community_${submission.id}';
 
       final embedding = await _embeddingService.embedDocument(
